@@ -250,9 +250,12 @@
 
   /* ── SUGERENCIAS ── */
   .suggestions {
-    padding: 8px 14px; display: flex; gap: 6px;
-    overflow-x: auto; flex-shrink: 0; scrollbar-width: none;
-    background: white; border-top: 1px solid var(--gris-borde);
+    padding: 8px 14px; 
+    display: flex; 
+    flex-wrap: wrap;
+    gap: 8px;
+    background: white; 
+    border-top: 1px solid var(--gris-borde);
   }
 
   .suggestions::-webkit-scrollbar { display: none; }
@@ -377,7 +380,7 @@
           <img src="logo.png" alt="GL" onerror="this.parentElement.innerHTML='<span class=&quot;bot-icon-fallback&quot;>GL</span>'"/>
         </div>
         <div class="bubble">
-          ¡Hola! 👋 Soy el asistente de <strong>Gōku Lab</strong>. Puedo ayudarte con información sobre cursos, horarios, costos, ubicación y más. ¿En qué te puedo ayudar?
+          ¡Hola! 👋 Soy <strong>Gōku</strong>. Puedo ayudarte con información sobre cursos, horarios, costos, ubicación y más. ¿En qué te puedo ayudar?
         </div>
       </div>
       <div class="msg-time" style="padding-left:34px">ahora</div>
@@ -414,13 +417,12 @@
 
 </div>
 
-<!-- Barra de configuración de URL -->
+<!-- Barra de configuración de URL 
 <div class="url-bar">
   <label>🔗 Backend:</label>
   <input class="url-input" id="urlInput" type="text" placeholder="https://tu-ngrok-url.ngrok-free.app"/>
   <button class="url-save" onclick="saveUrl()">Guardar</button>
-</div>
-
+</div> -->
 <!-- Toast de notificación -->
 <div class="toast" id="toast"></div>
 
