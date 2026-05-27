@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Gōku Lab — Asistente</title>
+<title>Gōku, Tu amigo y asistente</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -362,7 +362,7 @@
   <!-- Header -->
   <div class="header">
     <div class="avatar" id="headerAvatar">
-      <img src="frontend/logo.png" alt="Gōku Lab" onerror="this.style.display='none'; this.parentElement.innerHTML='<span class=\'avatar-fallback\'>GL</span>'"/>
+      <img src="/logo.png" alt="Gōku Lab" onerror="this.style.display='none'; this.parentElement.innerHTML='<span class=\'avatar-fallback\'>GL</span>'"/>
     </div>
     <div class="header-info">
       <div class="header-name">Súper Agente Gōku</div>
@@ -377,7 +377,7 @@
     <div class="msg bot">
       <div class="msg-row">
         <div class="bot-icon">
-          <img src="frontend/logo.png" alt="GL" onerror="this.parentElement.innerHTML='<span class=&quot;bot-icon-fallback&quot;>GL</span>'"/>
+          <img src="/logo.png" alt="GL" onerror="this.parentElement.innerHTML='<span class=&quot;bot-icon-fallback&quot;>GL</span>'"/>
         </div>
         <div class="bubble">
           ¡Hola! 👋 Soy <strong>Gōku</strong>. Puedo ayudarte con información sobre cursos, horarios, costos, ubicación y más. ¿En qué te puedo ayudar?
@@ -479,7 +479,7 @@
 
       const iconDiv = document.createElement('div');
       iconDiv.className = 'bot-icon';
-      iconDiv.innerHTML = `<img src="frontend/logo.png" alt="GL" onerror="this.parentElement.innerHTML='<span class=&quot;bot-icon-fallback&quot;>GL</span>'"/>`;
+      iconDiv.innerHTML = `<img src="/logo.png" alt="GL" onerror="this.parentElement.innerHTML='<span class=&quot;bot-icon-fallback&quot;>GL</span>'"/>`;
 
       const bubble = document.createElement('div');
       bubble.className = 'bubble';
@@ -547,7 +547,7 @@
     wrap.innerHTML = `
       <div class="msg-row">
         <div class="bot-icon">
-          <img src="frontend/logo.png" alt="GL" onerror="this.parentElement.innerHTML='<span class=&quot;bot-icon-fallback&quot;>GL</span>'"/>
+          <img src="/logo.png" alt="GL" onerror="this.parentElement.innerHTML='<span class=&quot;bot-icon-fallback&quot;>GL</span>'"/>
         </div>
         <div class="typing"><span></span><span></span><span></span></div>
       </div>`;
