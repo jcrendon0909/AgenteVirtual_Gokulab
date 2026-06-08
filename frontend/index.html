@@ -441,7 +441,7 @@
     if (!val) return;
     API_URL = val;
     localStorage.setItem('gokulab_api_url', val);
-    showToast('✅ URL guardada');
+    showToast(' URL guardada');
   }
 
   function showToast(msg, isError = false) {
@@ -496,32 +496,6 @@
       time.textContent = getTime();
       wrap.appendChild(time);
 
-      // Tags de debug (intención, confianza, sentimiento)
-      if (meta) {
-        const tags = document.createElement('div');
-        tags.className = 'msg-tags';
-
-        if (meta.intencion) {
-          const t = document.createElement('span');
-          t.className = 'tag intent';
-          t.textContent = meta.intencion.replace('_', ' ');
-          tags.appendChild(t);
-        }
-        if (meta.confianza) {
-          const t = document.createElement('span');
-          t.className = 'tag conf';
-          t.textContent = meta.confianza;
-          tags.appendChild(t);
-        }
-        if (meta.sentimiento) {
-          const emoji = { positivo: '😊', negativo: '😟', neutral: '😐' };
-          const t = document.createElement('span');
-          t.className = `tag sent-${meta.sentimiento}`;
-          t.textContent = (emoji[meta.sentimiento] || '') + ' ' + meta.sentimiento;
-          tags.appendChild(t);
-        }
-        wrap.appendChild(tags);
-      }
 
     } else {
       // Mensaje del usuario
@@ -587,11 +561,7 @@
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
 
-      appendMsg('bot', data.respuesta, {
-        intencion:   data.intencion,
-        confianza:   data.confianza,
-        sentimiento: data.sentimiento,
-      });
+      appendMsg('bot', data.respuesta);
 
     } catch (err) {
       hideTyping();

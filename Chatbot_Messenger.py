@@ -6,7 +6,6 @@ import string
 import gdown
 import pandas as pd
 import nltk
-import requests
 from nltk.corpus import stopwords
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import SVC
@@ -19,16 +18,13 @@ from datetime import datetime
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from flask_cors import CORS
 import pdfplumber
+import requests as http_requests 
 
-# ─────────────────────────────────────────────
-# SETUP INICIAL
-# ─────────────────────────────────────────────
 
 nltk.download("stopwords", quiet=True)
 nltk.download("punkt_tab", quiet=True)
 load_dotenv()
 
-# ─── Conexión MongoDB ───────────────────────
 try:
     client_mongo = MongoClient(os.getenv("MONGO_URI"), serverSelectionTimeoutMS=5000)
     client_mongo.server_info()
@@ -40,7 +36,6 @@ except Exception as e:
     db = None
     coleccion = None
 
-# ─── Groq keys ──────────────────────────────
 GROQ_KEYS = [
     os.getenv("GROQ_API_KEY_1"),
     os.getenv("GROQ_API_KEY_2"),
@@ -55,21 +50,12 @@ if GROQ_KEYS:
 else:
     print("No se encontraron API keys de Groq.")
 
-# ─── Telegram ───────────────────────────────
-TELEGRAM_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
-    print("Telegram configurado.")
-else:
-    print("Telegram no configurado (revisa TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID).")
+VERIFY_TOKEN      = os.getenv("VERIFY_TOKEN")
+PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN")
 
-# ─── Analizador de sentimiento ──────────────
 analizador_sentimiento = SentimentIntensityAnalyzer()
 
-# ─────────────────────────────────────────────
-# RAG — FALLBACK CON PDF
-# ─────────────────────────────────────────────
 
 PDF_PATH = "gokulab_info.pdf"
 
@@ -89,10 +75,6 @@ def cargar_pdf():
         return ""
 
 CONTEXTO_PDF = cargar_pdf()
-
-# ─────────────────────────────────────────────
-# MODELO: CARGAR O ENTRENAR
-# ─────────────────────────────────────────────
 
 MODEL_PATH = "modelo_intents.pkl"
 stop_words = set(stopwords.words("spanish"))
@@ -205,10 +187,10 @@ def obtener_datos_por_intencion(intencion):
 
     elif intencion == "Consultar_Costos":
         return {
-            "costos":      config.get("costos"),
+            "costos": config.get("costos"),
             "formas_pago": config.get("formas_pago"),
-            "abonos":      config.get("detalle_abonos"),
-            "config":      config_mini,
+            "abonos": config.get("detalle_abonos"),
+            "config": config_mini
         }
 
     elif intencion == "Consultar_Horarios":
@@ -226,8 +208,8 @@ def obtener_datos_por_intencion(intencion):
     elif intencion == "Consultar_FormasPago":
         return {
             "formas_pago": config.get("formas_pago"),
-            "abonos":      config.get("detalle_abonos"),
-            "config":      config_mini,
+            "abonos": config.get("detalle_abonos"),
+            "config": config_mini
         }
 
     elif intencion == "Consultar_Modalidad":
@@ -253,63 +235,13 @@ def obtener_datos_por_intencion(intencion):
             "direccion":   config.get("direccion"),
             "referencias": config.get("referencias"),
             "maps":        config.get("google_maps"),
-            "config":      config_mini,
+            "config":      config_mini
         }
 
     return {"config": config_mini}
 
 
-ETIQUETAS_INTENCION = {
-    "Consultar_Costos":     "Consulta de precios",
-    "Consultar_ClaseDemo":  "Clase demo / Master Class",
-}
-
-def notificar_marco(numero_usuario, intencion, mensaje_original):
-    notificar_marco_con_contexto(numero_usuario, intencion, mensaje_original, "")
-
-def notificar_marco_con_contexto(numero_usuario, intencion, mensaje_original, contexto):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Telegram no configurado, notificación omitida.")
-        return
-
-    tema = ETIQUETAS_INTENCION.get(intencion, intencion)
-
-    texto = (
-        f"🔔 *Nuevo lead — Gōku Lab*\n\n"
-        f"Tema: {tema}\n"
-        f"contacto: `{numero_usuario}`\n"
-        f"¿Qué consultó?: _{mensaje_original}_"
-    )
-
-    if contexto:
-        texto += f"\n\n📋 *Conversación previa:*\n{contexto}"
-
-    try:
-        resp = requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={
-                "chat_id":    TELEGRAM_CHAT_ID,
-                "text":       texto,
-                "parse_mode": "Markdown",
-            },
-            timeout=5,
-        )
-        if resp.ok:
-            print("Notificación Telegram enviada.")
-        else:
-            print(f"Error Telegram: {resp.text}")
-    except Exception as e:
-        print(f"Error enviando notificación Telegram: {e}")
-
-
-INTENCIONES_REQUIEREN_HUMANO = {
-    "Consultar_Costos",
-    "Consultar_ClaseDemo",
-}
-
-# ─────────────────────────────────────────────
-# ANÁLISIS DE SENTIMIENTO
-# ─────────────────────────────────────────────
+#ANÁLISIS DE SENTIMIENTO
 
 def analizar_sentimiento(texto):
     scores = analizador_sentimiento.polarity_scores(texto)
@@ -322,9 +254,7 @@ def analizar_sentimiento(texto):
         return "neutral", compound
 
 
-# ─────────────────────────────────────────────
-# VALIDACIÓN DE ENTRADA
-# ─────────────────────────────────────────────
+#VALIDACIÓN DE ENTRADA
 
 def validar_entrada(mensaje):
     if not mensaje or not mensaje.strip():
@@ -344,9 +274,7 @@ RESPUESTAS_INVALIDAS = {
 }
 
 
-# ─────────────────────────────────────────────
-# CONSTRUCCIÓN DE PROMPTS
-# ─────────────────────────────────────────────
+#CONSTRUCCIÓN DE PROMPTS
 
 TONO_MAP = {
     "negativo": "El usuario está frustrado. Responde con empatía y paciencia.",
@@ -355,34 +283,39 @@ TONO_MAP = {
 }
 
 INSTRUCCIONES = {
-    "Saludo": "Saluda calurosamente, preséntate como asistente de {academia} y pregunta en qué puedes ayudar.",
+    "Saludo":                   "Saluda calurosamente, preséntate como asistente de {academia} y pregunta en qué puedes ayudar.",
     "Despedida": (
-        "El usuario se está despidiendo. "
-        "Despídete de forma breve y amable. "
-        "NO hagas preguntas. NO menciones teléfono, WhatsApp ni correos. "
-        "Tu respuesta DEBE terminar EXACTAMENTE con esta frase, sin cambiarla: "
-        "'¡Te esperamos en Gōku Lab! 🎮\nJuega, Aprende y Emprende'"
-    ),
-    "Desconocido":             "No entendiste la consulta. Discúlpate y pide que la reformule.",
-    "Consultar_Cursos":        "Menciona los cursos disponibles con nombre y descripción breve (máximo dos líneas). Sé conversacional.",
-    "Consultar_Costos": "Da el rango de costos en UNA sola oración muy breve. NO inventes precios exactos. NO menciones WhatsApp ni correos.",
-    "Consultar_Horarios":      "Presenta los horarios por curso de forma clara.",
-    "Consultar_Ubicacion":     "Da la dirección, referencias y link de Maps.",
-    "Consultar_Modalidad":     "Explica si las clases son presenciales, online o híbridas por curso.",
-    "Consultar_Certificacion": "Explica si se otorga certificado y su validez.",
+    "El usuario se está despidiendo. "
+    "Despídete de forma breve y amable, NO hagas más preguntas. "
+    "NO menciones números de teléfono, WhatsApp ni correos. "
+    "Termina SIEMPRE con: '¡Te esperamos en Gōku Lab! 🎮\nJuega, Aprende y Emprende'"),
+    "Desconocido":              "No entendiste la consulta. Discúlpate y pide que la reformule.",
+    "Consultar_Cursos":         "Menciona los cursos disponibles con nombre y descripción breve (máximo dos líneas). Sé conversacional.",
+    "Consultar_Costos": (
+    "Informa el rango de costos y formas de pago disponibles según los datos. "
+    "Si el cliente pregunta por un costo específico o quiere más detalles, "
+    "indica que un miembro del equipo de Gōku Lab le dará información personalizada. "
+    "NO inventes precios exactos que no estén en los datos. "
+    "NO menciones WhatsApp ni correos."),
+    "Consultar_Horarios":       "Presenta los horarios por curso de forma clara.",
+    "Consultar_Ubicacion":      "Da la dirección, referencias y link de Maps.",
+    "Consultar_Modalidad":      "Explica si las clases son presenciales, online o híbridas por curso.",
+    "Consultar_Certificacion":  "Explica si se otorga certificado y su validez.",
     "Consultar_ClaseDemo": (
-        "Explica que existe una Master Class gratuita para conocer la metodología. "
-        "NO menciones correos, enlaces, formularios ni WhatsApp. "
-        "NO inventes fechas ni horarios fijos."
-    ),
-    "Consultar_FormasPago":    "Menciona métodos de pago y opción de abonos.",
-    "Consultar_RequisitosEdad":"Explica el rango de edad por curso.",
+    "El usuario pregunta por la clase de prueba. "
+    "Explica que existe una Master Class gratuita para conocer la metodología. "
+    "Indica que un miembro del equipo de Gōku Lab se pondrá en contacto para coordinar "
+    "la fecha y hora según la disponibilidad del cliente y la academia. "
+    "NO menciones correos, enlaces, formularios ni WhatsApp. "
+    "NO inventes fechas ni horarios fijos."),
+    "Consultar_FormasPago":     "Menciona métodos de pago y opción de abonos.",
+    "Consultar_RequisitosEdad": "Explica el rango de edad por curso.",
     "Consultar_Duracion": (
-        "Explica que cada clase tiene una duración de 90 minutos y se imparte una vez por semana. "
-        "Menciona que el cliente puede elegir inscribir a su hijo en más de una sesión semanal. "
-        "NO inventes horarios ni días específicos. "
-        "Invita a preguntar sobre horarios disponibles."
-    ),
+    "Explica que cada clase tiene una duración de 90 minutos y se imparte una vez por semana. "
+    "Menciona que el cliente puede elegir inscribir a su hijo en más de una sesión semanal "
+    "si desea mayor frecuencia. "
+    "NO inventes horarios ni días específicos, esos se coordinan con la academia. "
+    "Invita a preguntar sobre horarios disponibles."),
 }
 
 def construir_prompt(intencion, datos, config, sentimiento):
@@ -394,8 +327,8 @@ def construir_prompt(intencion, datos, config, sentimiento):
         f"Tono: {TONO_MAP.get(sentimiento, TONO_MAP['neutral'])}\n"
         f"Tarea: {instruccion}\n"
         f"Datos: {datos}\n"
-        f"Reglas: No inventes info. MÁXIMO 2 oraciones. Sin viñetas. "
-        f"Si el usuario hace más de una pregunta y tienes los datos, responde ambas. "
+        f"Reglas: No inventes info. MÁXIMO 1 oración. Sin viñetas. Termina con una pregunta."
+        f"Si el usuario hace más de una pregunta y tienes los datos, responde ambas"
         f"Si el usuario se despide NO hagas preguntas. "
         f"Termina con una pregunta SOLO si NO es despedida."
     )
@@ -413,9 +346,7 @@ def construir_prompt_rag(contexto_pdf, config, sentimiento):
     )
 
 
-# ─────────────────────────────────────────────
-# RESPUESTA DE EMERGENCIA
-# ─────────────────────────────────────────────
+#RESPUESTA DE EMERGENCIA
 
 RESPUESTA_FALLBACK = (
     "En este momento tengo un problema técnico. "
@@ -428,9 +359,9 @@ def llamar_groq(messages):
             cliente = Groq(api_key=key)
             respuesta = cliente.chat.completions.create(
                 model="llama-3.3-70b-versatile",
-                max_tokens=120,
+                max_tokens=100,
                 temperature=0.7,
-                messages=messages,
+                messages=messages
             )
             return respuesta.choices[0].message.content
         except Exception as e:
@@ -439,23 +370,181 @@ def llamar_groq(messages):
     return RESPUESTA_FALLBACK
 
 
-# ─────────────────────────────────────────────
-# FLASK APP
-# ─────────────────────────────────────────────
+def generar_respuesta(mensaje, numero="anonimo", canal="web"):
+    es_valido, motivo = validar_entrada(mensaje)
+    if not es_valido:
+        return RESPUESTAS_INVALIDAS.get(motivo, "¿En qué te puedo ayudar?")
+
+    sentimiento, score_sentimiento = analizar_sentimiento(mensaje)
+    intencion, confianza           = predecir_intent(mensaje)
+    usar_rag = intencion == "Desconocido"
+    datos    = obtener_datos_por_intencion(intencion)
+    config   = datos.get("config") or {}
+
+    historial_groq = []
+    if coleccion is not None:
+        historial_db = list(
+            coleccion.find({"numero": numero}, {"_id": 0, "mensaje": 1, "respuesta": 1})
+            .sort("timestamp", -1)
+            .limit(3)
+        )
+        for h in reversed(historial_db):
+            historial_groq.append({"role": "user",      "content": h["mensaje"]})
+            historial_groq.append({"role": "assistant", "content": h["respuesta"]})
+
+    if usar_rag and CONTEXTO_PDF:
+        prompt_sistema = construir_prompt_rag(CONTEXTO_PDF, config, sentimiento)
+    else:
+        prompt_sistema = construir_prompt(intencion, datos, config, sentimiento)
+
+    respuesta = llamar_groq([
+        {"role": "system", "content": prompt_sistema},
+        *historial_groq,
+        {"role": "user",   "content": mensaje},
+    ])
+
+    if coleccion is not None:
+        try:
+            coleccion.insert_one({
+                "numero":      numero,
+                "mensaje":     mensaje,
+                "intencion":   intencion,
+                "confianza":   round(confianza, 4),
+                "sentimiento": sentimiento,
+                "score_sent":  round(score_sentimiento, 4),
+                "uso_rag":     usar_rag,
+                "respuesta":   respuesta,
+                "timestamp":   datetime.now(),
+                "canal":       canal,          # "web" o "messenger"
+            })
+        except Exception as mongo_err:
+            print(f"No se pudo guardar en MongoDB: {mongo_err}")
+
+    return respuesta
+
+
+#FLASK APP
 
 app = Flask(__name__)
 CORS(app)
-
 
 @app.route("/logo.png")
 def logo():
     return send_file("logo.png")
 
-
 @app.route("/")
 def index():
     return send_file("chat.html")
 
+
+# ─────────────────────────────────────────────────────────────
+# WEBHOOK DE MESSENGER
+# ─────────────────────────────────────────────────────────────
+
+def enviar_mensaje_messenger(recipient_id, texto, quick_replies=None):
+    url = f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+    mensaje = {"text": texto}
+    if quick_replies:
+        mensaje["quick_replies"] = quick_replies
+    payload = {
+        "recipient": {"id": recipient_id},
+        "message": mensaje,
+    }
+    try:
+        r = http_requests.post(url, json=payload, timeout=10)
+        if r.status_code != 200:
+            print(f"Error Messenger API: {r.status_code} — {r.text}")
+    except Exception as e:
+        print(f"Excepción enviando a Messenger: {e}")
+
+
+def enviar_bienvenida(recipient_id):
+    quick_replies = [
+        {"content_type": "text", "title": "💰 Costos",        "payload": "¿Cuánto cuestan los cursos?"},
+        {"content_type": "text", "title": "📚 Cursos",        "payload": "¿Qué cursos tienen disponibles?"},
+        {"content_type": "text", "title": "🕐 Horarios",      "payload": "¿Qué horarios manejan?"},
+        {"content_type": "text", "title": "📍 Ubicación",     "payload": "¿Dónde están ubicados?"},
+        {"content_type": "text", "title": "🎓 Certificación", "payload": "¿Dan certificado?"},
+        {"content_type": "text", "title": "🎯 Clase demo",    "payload": "¿Tienen clase de prueba?"},
+        {"content_type": "text", "title": "💳 Pagos",         "payload": "¿Cuáles son las formas de pago?"},
+    ]
+    enviar_mensaje_messenger(
+        recipient_id,
+        "¡Hola! 👋 Soy Gōku, tu asistente virtual de Gōku Lab. ¿En qué te puedo ayudar?",
+        quick_replies=quick_replies,
+    )
+
+
+@app.route("/webhook", methods=["GET"])
+def webhook_verificacion():
+    """Meta llama este endpoint para verificar el webhook al configurarlo."""
+    mode       = request.args.get("hub.mode")
+    token      = request.args.get("hub.verify_token")
+    challenge  = request.args.get("hub.challenge")
+
+    if mode == "subscribe" and token == VERIFY_TOKEN:
+        print("Webhook verificado correctamente.")
+        return challenge, 200
+
+    print(f"Verificación fallida. Token recibido: {token}")
+    return "Token inválido", 403
+
+
+@app.route("/webhook", methods=["POST"])
+def webhook_mensajes():
+    data = request.json
+
+    if data.get("object") == "page":
+        for entry in data.get("entry", []):
+            for event in entry.get("messaging", []):
+
+                sender_id = event["sender"]["id"]
+
+                # Botón "Comenzar" → saludo con quick replies
+                if "postback" in event:
+                    if event["postback"].get("payload") == "GET_STARTED":
+                        enviar_bienvenida(sender_id)
+                    continue
+
+                if "message" not in event:
+                    continue
+                if event["message"].get("is_echo"):
+                    continue
+
+                # Si tocó un quick reply, usar su payload como texto
+                if "quick_reply" in event["message"]:
+                    texto_usuario = event["message"]["quick_reply"]["payload"]
+                else:
+                    texto_usuario = event["message"].get("text", "")
+
+                if not texto_usuario:
+                    continue
+
+                print(f"[Messenger] De {sender_id}: {texto_usuario}")
+
+                respuesta = generar_respuesta(
+                    mensaje=texto_usuario,
+                    numero=sender_id,
+                    canal="messenger",
+                )
+
+                quick_replies = [
+                    {"content_type": "text", "title": "💰 Costos",        "payload": "¿Cuánto cuestan los cursos?"},
+                    {"content_type": "text", "title": "📚 Cursos",        "payload": "¿Qué cursos tienen disponibles?"},
+                    {"content_type": "text", "title": "🕐 Horarios",      "payload": "¿Qué horarios manejan?"},
+                    {"content_type": "text", "title": "📍 Ubicación",     "payload": "¿Dónde están ubicados?"},
+                    {"content_type": "text", "title": "🎓 Certificación", "payload": "¿Dan certificado?"},
+                    {"content_type": "text", "title": "🎯 Clase demo",    "payload": "¿Tienen clase de prueba?"},
+                    {"content_type": "text", "title": "💳 Pagos",         "payload": "¿Cuáles son las formas de pago?"},
+                ]
+                enviar_mensaje_messenger(sender_id, respuesta, quick_replies)
+
+    return "OK", 200
+
+
+# ─────────────────────────────────────────────────────────────
+# RUTA /chat  (tu chat web existente, sin cambios)
+# ─────────────────────────────────────────────────────────────
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -467,7 +556,6 @@ def chat():
         mensaje = data.get("mensaje", "").strip()
         numero  = data.get("numero", "anonimo")
 
-        # 1. Validación ─────────────────────────────────────
         es_valido, motivo = validar_entrada(mensaje)
         if not es_valido:
             return jsonify({
@@ -476,149 +564,12 @@ def chat():
                 "sentimiento": None,
             }), 200
 
-        # 2. ¿Estábamos esperando el número del usuario? ────
-        esperando_numero    = False
-        intencion_pendiente = None
-        mensaje_original    = None
-
-        if db is not None:
-            estado = db["estados"].find_one({"numero": numero})
-            if estado and estado.get("esperando_numero"):
-                esperando_numero    = True
-                intencion_pendiente = estado.get("intencion_pendiente")
-                mensaje_original    = estado.get("mensaje_original", "")
-
-        if esperando_numero:
-            # Verificar si el mensaje parece un número de teléfono
-            solo_numeros = re.sub(r"[\s\-\(\)\+]", "", mensaje)
-            es_numero = solo_numeros.isdigit() and len(solo_numeros) >= 8
-
-            if not es_numero:
-                # No parece número, volver a pedir
-                return jsonify({
-                    "intencion":   "esperando_numero",
-                    "confianza":   "100%",
-                    "sentimiento": "neutral",
-                    "respuesta":   "Para conectarte con nuestro equipo necesito tu número de WhatsApp. ¿Me lo compartes? 😊",
-                })
-
-            numero_dado = mensaje
-
-            contexto_conversacion = ""
-            if coleccion is not None:
-                historial_lead = list(
-                    coleccion.find({"numero": numero}, {"_id": 0, "mensaje": 1, "respuesta": 1})
-                    .sort("timestamp", -1)
-                    .limit(4)
-                )
-                if historial_lead:
-                    lineas = []
-                    for h in reversed(historial_lead):
-                        lineas.append(f"Usuario: {h['mensaje']}")
-                        lineas.append(f"Bot: {h['respuesta']}")
-                    contexto_conversacion = "\n".join(lineas)
-
-            #
-            notificar_marco_con_contexto(numero_dado, intencion_pendiente, mensaje_original, contexto_conversacion)
-
-            db["estados"].delete_one({"numero": numero})
-
-    
-            if coleccion is not None:
-                try:
-                    coleccion.insert_one({
-                        "numero":      numero_dado,
-                        "mensaje":     f"[número capturado] {numero_dado}",
-                        "intencion":   "captura_numero",
-                        "confianza":   1.0,
-                        "sentimiento": "neutral",
-                        "score_sent":  0.0,
-                        "uso_rag":     False,
-                        "respuesta":   "Número enviado al equipo.",
-                        "timestamp":   datetime.now(),
-                    })
-                except Exception as mongo_err:
-                    print(f"No se pudo guardar en MongoDB: {mongo_err}")
-
-            return jsonify({
-                "intencion":   "captura_numero",
-                "confianza":   "100%",
-                "sentimiento": "neutral",
-                "respuesta": (
-                    "¡Listo! Nuestro equipo se pondrá en contacto contigo muy pronto. "
-                    "¿Hay algo más en lo que pueda ayudarte?"
-                ),
-            })
-
-        # 3. Sentimiento ────────────────────────────────────
         sentimiento, score_sentimiento = analizar_sentimiento(mensaje)
-
-        # 4. Intención ──────────────────────────────────────
-        intencion, confianza = predecir_intent(mensaje)
-
-        # 5. ¿Esta intención requiere atención humana? ──────
-        if intencion in INTENCIONES_REQUIEREN_HUMANO:
-
-
-            ya_dio_numero = False
-            if coleccion is not None:
-                captura_previa = coleccion.find_one({
-                    "numero":    numero,
-                    "intencion": "captura_numero",
-                })
-                if captura_previa:
-                    ya_dio_numero = True
-
-            if ya_dio_numero:
-                datos  = obtener_datos_por_intencion(intencion)
-                config = datos.get("config") or {}
-                respuesta_directa = llamar_groq([
-                    {"role": "system", "content": construir_prompt(intencion, datos, config, sentimiento)},
-                    {"role": "user",   "content": mensaje},
-                ])
-                return jsonify({
-                    "intencion":   intencion,
-                    "confianza":   f"{confianza:.0%}",
-                    "sentimiento": sentimiento,
-                    "respuesta":   respuesta_directa,
-                })
-
-            if db is not None:
-                db["estados"].replace_one(
-                    {"numero": numero},
-                    {
-                        "numero":              numero,
-                        "esperando_numero":    True,
-                        "intencion_pendiente": intencion,
-                        "mensaje_original":    mensaje,
-                    },
-                    upsert=True,
-                )
-
-            datos  = obtener_datos_por_intencion(intencion)
-            config = datos.get("config") or {}
-
-            respuesta_parcial = llamar_groq([
-                {"role": "system", "content": construir_prompt(intencion, datos, config, sentimiento)},
-                {"role": "user",   "content": mensaje},
-            ])
-
-            return jsonify({
-                "intencion":   intencion,
-                "confianza":   f"{confianza:.0%}",
-                "sentimiento": sentimiento,
-                "respuesta": (
-                    f"{respuesta_parcial}\n\n"
-                    "¿Me compartes tu número de WhatsApp para darte info personalizada?"
-                ),
-            })
-
-        # 6. Datos según intención (flujo normal) ───────────
+        intencion, confianza           = predecir_intent(mensaje)
         usar_rag = intencion == "Desconocido"
         datos    = obtener_datos_por_intencion(intencion)
         config   = datos.get("config") or {}
 
-        # 7. Historial reciente (últimos 3 intercambios) ────
         historial_groq = []
         if coleccion is not None:
             historial_db = list(
@@ -630,20 +581,17 @@ def chat():
                 historial_groq.append({"role": "user",      "content": h["mensaje"]})
                 historial_groq.append({"role": "assistant", "content": h["respuesta"]})
 
-        # 8. Prompt ─────────────────────────────────────────
         if usar_rag and CONTEXTO_PDF:
             prompt_sistema = construir_prompt_rag(CONTEXTO_PDF, config, sentimiento)
         else:
             prompt_sistema = construir_prompt(intencion, datos, config, sentimiento)
 
-        # 9. Llamada a Groq ──────────────────────────────────
         respuesta = llamar_groq([
             {"role": "system", "content": prompt_sistema},
             *historial_groq,
             {"role": "user",   "content": mensaje},
         ])
 
-        # 10. Guardar en MongoDB ─────────────────────────────
         if coleccion is not None:
             try:
                 coleccion.insert_one({
@@ -656,11 +604,11 @@ def chat():
                     "uso_rag":     usar_rag,
                     "respuesta":   respuesta,
                     "timestamp":   datetime.now(),
+                    "canal":       "web",
                 })
             except Exception as mongo_err:
                 print(f"No se pudo guardar en MongoDB: {mongo_err}")
 
-        # 11. Respuesta ──────────────────────────────────────
         return jsonify({
             "intencion":   intencion,
             "confianza":   f"{confianza:.0%}",
@@ -690,13 +638,13 @@ def retrain():
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({
-        "status":          "ok",
-        "modelo_cargado":  mejor_modelo is not None,
-        "mongo_ok":        db is not None,
-        "groq_ok":         len(GROQ_KEYS) > 0,
-        "rag_listo":       bool(CONTEXTO_PDF),
-        "telegram_ok":     bool(TELEGRAM_TOKEN and TELEGRAM_CHAT_ID),
-        "timestamp":       datetime.now().isoformat(),
+        "status":              "ok",
+        "modelo_cargado":      mejor_modelo is not None,
+        "mongo_ok":            db is not None,
+        "groq_ok":             len(GROQ_KEYS) > 0,
+        "rag_listo":           bool(CONTEXTO_PDF),
+        "messenger_token_ok":  bool(PAGE_ACCESS_TOKEN),
+        "timestamp":           datetime.now().isoformat(),
     }), 200
 
 

@@ -6,7 +6,6 @@ import string
 import gdown
 import pandas as pd
 import nltk
-import requests
 from nltk.corpus import stopwords
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import SVC
@@ -19,16 +18,15 @@ from datetime import datetime
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from flask_cors import CORS
 import pdfplumber
+from twilio.twiml.messaging_response import MessagingResponse
 
-# ─────────────────────────────────────────────
-# SETUP INICIAL
-# ─────────────────────────────────────────────
 
+#SETUP INICIAL
 nltk.download("stopwords", quiet=True)
 nltk.download("punkt_tab", quiet=True)
 load_dotenv()
 
-# ─── Conexión MongoDB ───────────────────────
+#Conexiones 
 try:
     client_mongo = MongoClient(os.getenv("MONGO_URI"), serverSelectionTimeoutMS=5000)
     client_mongo.server_info()
@@ -40,7 +38,6 @@ except Exception as e:
     db = None
     coleccion = None
 
-# ─── Groq keys ──────────────────────────────
 GROQ_KEYS = [
     os.getenv("GROQ_API_KEY_1"),
     os.getenv("GROQ_API_KEY_2"),
@@ -55,21 +52,10 @@ if GROQ_KEYS:
 else:
     print("No se encontraron API keys de Groq.")
 
-# ─── Telegram ───────────────────────────────
-TELEGRAM_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-
-if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
-    print("Telegram configurado.")
-else:
-    print("Telegram no configurado (revisa TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID).")
-
-# ─── Analizador de sentimiento ──────────────
+#Analizador de sentimiento
 analizador_sentimiento = SentimentIntensityAnalyzer()
 
-# ─────────────────────────────────────────────
-# RAG — FALLBACK CON PDF
-# ─────────────────────────────────────────────
+#RAG — FALLBACK CON PDF
 
 PDF_PATH = "gokulab_info.pdf"
 
@@ -90,10 +76,7 @@ def cargar_pdf():
 
 CONTEXTO_PDF = cargar_pdf()
 
-# ─────────────────────────────────────────────
-# MODELO: CARGAR O ENTRENAR
-# ─────────────────────────────────────────────
-
+#  MODELO: CARGAR O ENTRENAR
 MODEL_PATH = "modelo_intents.pkl"
 stop_words = set(stopwords.words("spanish"))
 
@@ -192,6 +175,7 @@ def obtener_datos_por_intencion(intencion):
 
     config = db["datos_generales"].find_one({}, {"_id": 0}) or {}
 
+    # Campos mínimos de config que siempre se usan
     config_mini = {
         "nombre_academia": config.get("nombre_academia"),
         "whatsapp":        config.get("whatsapp"),
@@ -205,10 +189,10 @@ def obtener_datos_por_intencion(intencion):
 
     elif intencion == "Consultar_Costos":
         return {
-            "costos":      config.get("costos"),
+            "costos": config.get("costos"),
             "formas_pago": config.get("formas_pago"),
-            "abonos":      config.get("detalle_abonos"),
-            "config":      config_mini,
+            "abonos": config.get("detalle_abonos"),
+            "config": config_mini
         }
 
     elif intencion == "Consultar_Horarios":
@@ -226,8 +210,8 @@ def obtener_datos_por_intencion(intencion):
     elif intencion == "Consultar_FormasPago":
         return {
             "formas_pago": config.get("formas_pago"),
-            "abonos":      config.get("detalle_abonos"),
-            "config":      config_mini,
+            "abonos": config.get("detalle_abonos"),
+            "config": config_mini
         }
 
     elif intencion == "Consultar_Modalidad":
@@ -253,63 +237,13 @@ def obtener_datos_por_intencion(intencion):
             "direccion":   config.get("direccion"),
             "referencias": config.get("referencias"),
             "maps":        config.get("google_maps"),
-            "config":      config_mini,
+            "config":      config_mini
         }
 
     return {"config": config_mini}
 
 
-ETIQUETAS_INTENCION = {
-    "Consultar_Costos":     "Consulta de precios",
-    "Consultar_ClaseDemo":  "Clase demo / Master Class",
-}
-
-def notificar_marco(numero_usuario, intencion, mensaje_original):
-    notificar_marco_con_contexto(numero_usuario, intencion, mensaje_original, "")
-
-def notificar_marco_con_contexto(numero_usuario, intencion, mensaje_original, contexto):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Telegram no configurado, notificación omitida.")
-        return
-
-    tema = ETIQUETAS_INTENCION.get(intencion, intencion)
-
-    texto = (
-        f"🔔 *Nuevo lead — Gōku Lab*\n\n"
-        f"Tema: {tema}\n"
-        f"contacto: `{numero_usuario}`\n"
-        f"¿Qué consultó?: _{mensaje_original}_"
-    )
-
-    if contexto:
-        texto += f"\n\n📋 *Conversación previa:*\n{contexto}"
-
-    try:
-        resp = requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={
-                "chat_id":    TELEGRAM_CHAT_ID,
-                "text":       texto,
-                "parse_mode": "Markdown",
-            },
-            timeout=5,
-        )
-        if resp.ok:
-            print("Notificación Telegram enviada.")
-        else:
-            print(f"Error Telegram: {resp.text}")
-    except Exception as e:
-        print(f"Error enviando notificación Telegram: {e}")
-
-
-INTENCIONES_REQUIEREN_HUMANO = {
-    "Consultar_Costos",
-    "Consultar_ClaseDemo",
-}
-
-# ─────────────────────────────────────────────
-# ANÁLISIS DE SENTIMIENTO
-# ─────────────────────────────────────────────
+#ANÁLISIS DE SENTIMIENTO
 
 def analizar_sentimiento(texto):
     scores = analizador_sentimiento.polarity_scores(texto)
@@ -322,9 +256,7 @@ def analizar_sentimiento(texto):
         return "neutral", compound
 
 
-# ─────────────────────────────────────────────
-# VALIDACIÓN DE ENTRADA
-# ─────────────────────────────────────────────
+#VALIDACIÓN DE ENTRADA
 
 def validar_entrada(mensaje):
     if not mensaje or not mensaje.strip():
@@ -344,9 +276,7 @@ RESPUESTAS_INVALIDAS = {
 }
 
 
-# ─────────────────────────────────────────────
-# CONSTRUCCIÓN DE PROMPTS
-# ─────────────────────────────────────────────
+#CONSTRUCCIÓN DE PROMPTS — COMPACTOS
 
 TONO_MAP = {
     "negativo": "El usuario está frustrado. Responde con empatía y paciencia.",
@@ -355,38 +285,23 @@ TONO_MAP = {
 }
 
 INSTRUCCIONES = {
-    "Saludo": "Saluda calurosamente, preséntate como asistente de {academia} y pregunta en qué puedes ayudar.",
-    "Despedida": (
-        "El usuario se está despidiendo. "
-        "Despídete de forma breve y amable. "
-        "NO hagas preguntas. NO menciones teléfono, WhatsApp ni correos. "
-        "Tu respuesta DEBE terminar EXACTAMENTE con esta frase, sin cambiarla: "
-        "'¡Te esperamos en Gōku Lab! 🎮\nJuega, Aprende y Emprende'"
-    ),
-    "Desconocido":             "No entendiste la consulta. Discúlpate y pide que la reformule.",
-    "Consultar_Cursos":        "Menciona los cursos disponibles con nombre y descripción breve (máximo dos líneas). Sé conversacional.",
-    "Consultar_Costos": "Da el rango de costos en UNA sola oración muy breve. NO inventes precios exactos. NO menciones WhatsApp ni correos.",
-    "Consultar_Horarios":      "Presenta los horarios por curso de forma clara.",
-    "Consultar_Ubicacion":     "Da la dirección, referencias y link de Maps.",
-    "Consultar_Modalidad":     "Explica si las clases son presenciales, online o híbridas por curso.",
-    "Consultar_Certificacion": "Explica si se otorga certificado y su validez.",
-    "Consultar_ClaseDemo": (
-        "Explica que existe una Master Class gratuita para conocer la metodología. "
-        "NO menciones correos, enlaces, formularios ni WhatsApp. "
-        "NO inventes fechas ni horarios fijos."
-    ),
-    "Consultar_FormasPago":    "Menciona métodos de pago y opción de abonos.",
-    "Consultar_RequisitosEdad":"Explica el rango de edad por curso.",
-    "Consultar_Duracion": (
-        "Explica que cada clase tiene una duración de 90 minutos y se imparte una vez por semana. "
-        "Menciona que el cliente puede elegir inscribir a su hijo en más de una sesión semanal. "
-        "NO inventes horarios ni días específicos. "
-        "Invita a preguntar sobre horarios disponibles."
-    ),
+    "Saludo":                   "Saluda calurosamente, preséntate como asistente de {academia} y pregunta en qué puedes ayudar.",
+    "Despedida":                "Despídete amablemente. Termina SIEMPRE con: '¡Te esperamos en Goku Lab! 🎮\nJuega, Aprende y Emprende'",
+    "Desconocido":              "No entendiste la consulta. Discúlpate y pide que la reformule.",
+    "Consultar_Cursos":         "Menciona los cursos disponibles con nombre y descripción breve. Sé conversacional.",
+    "Consultar_Costos":         "Informa el rango de costos y formas de pago disponibles.",
+    "Consultar_Horarios":       "Presenta los horarios por curso de forma clara.",
+    "Consultar_Ubicacion":      "Da la dirección, referencias y link de Maps.",
+    "Consultar_Modalidad":      "Explica si las clases son presenciales, online o híbridas por curso.",
+    "Consultar_Certificacion":  "Explica si se otorga certificado y su validez.",
+    "Consultar_ClaseDemo":      "Explica cómo funciona la clase de prueba gratuita llamada 'Master Class' ",
+    "Consultar_FormasPago":     "Menciona métodos de pago y opción de abonos.",
+    "Consultar_RequisitosEdad": "Explica el rango de edad por curso.",
+    "Consultar_Duracion":       "Menciona la duración de cada curso.",
 }
 
 def construir_prompt(intencion, datos, config, sentimiento):
-    academia = config.get("nombre_academia", "Gōku Lab")
+    academia = config.get("nombre_academia", "Goku Lab")
     instruccion = INSTRUCCIONES.get(intencion, f"Responde sobre: {intencion}").replace("{academia}", academia)
 
     return (
@@ -394,28 +309,24 @@ def construir_prompt(intencion, datos, config, sentimiento):
         f"Tono: {TONO_MAP.get(sentimiento, TONO_MAP['neutral'])}\n"
         f"Tarea: {instruccion}\n"
         f"Datos: {datos}\n"
-        f"Reglas: No inventes info. MÁXIMO 2 oraciones. Sin viñetas. "
-        f"Si el usuario hace más de una pregunta y tienes los datos, responde ambas. "
-        f"Si el usuario se despide NO hagas preguntas. "
-        f"Termina con una pregunta SOLO si NO es despedida."
+        f"Reglas: No inventes info. Máximo 2 oraciones. Sin viñetas. Termina con una pregunta."
     )
 
 
 def construir_prompt_rag(contexto_pdf, config, sentimiento):
-    academia = config.get("nombre_academia", "Gōku Lab")
+    academia = config.get("nombre_academia", "Goku Lab")
+    whatsapp = config.get("whatsapp", "")
 
     return (
         f"Eres el asistente virtual de {academia}. Responde en español mexicano, natural y conciso.\n"
         f"Tono: {TONO_MAP.get(sentimiento, TONO_MAP['neutral'])}\n"
         f"Usa solo esta info para responder:\n{contexto_pdf}\n"
-        f"Si el usuario se despide NO hagas preguntas. "
-        f"Termina con una pregunta SOLO si NO es despedida."
+        f"Si no tienes el dato, invita a contactar por WhatsApp: {whatsapp}.\n"
+        f"Termina con una pregunta."
     )
 
 
-# ─────────────────────────────────────────────
-# RESPUESTA DE EMERGENCIA
-# ─────────────────────────────────────────────
+#RESPUESTA DE EMERGENCIA
 
 RESPUESTA_FALLBACK = (
     "En este momento tengo un problema técnico. "
@@ -428,9 +339,9 @@ def llamar_groq(messages):
             cliente = Groq(api_key=key)
             respuesta = cliente.chat.completions.create(
                 model="llama-3.3-70b-versatile",
-                max_tokens=120,
+                max_tokens=200,
                 temperature=0.7,
-                messages=messages,
+                messages=messages
             )
             return respuesta.choices[0].message.content
         except Exception as e:
@@ -438,19 +349,14 @@ def llamar_groq(messages):
             continue
     return RESPUESTA_FALLBACK
 
-
-# ─────────────────────────────────────────────
-# FLASK APP
-# ─────────────────────────────────────────────
+#FLASK APP
 
 app = Flask(__name__)
 CORS(app)
 
-
 @app.route("/logo.png")
 def logo():
     return send_file("logo.png")
-
 
 @app.route("/")
 def index():
@@ -476,149 +382,18 @@ def chat():
                 "sentimiento": None,
             }), 200
 
-        # 2. ¿Estábamos esperando el número del usuario? ────
-        esperando_numero    = False
-        intencion_pendiente = None
-        mensaje_original    = None
-
-        if db is not None:
-            estado = db["estados"].find_one({"numero": numero})
-            if estado and estado.get("esperando_numero"):
-                esperando_numero    = True
-                intencion_pendiente = estado.get("intencion_pendiente")
-                mensaje_original    = estado.get("mensaje_original", "")
-
-        if esperando_numero:
-            # Verificar si el mensaje parece un número de teléfono
-            solo_numeros = re.sub(r"[\s\-\(\)\+]", "", mensaje)
-            es_numero = solo_numeros.isdigit() and len(solo_numeros) >= 8
-
-            if not es_numero:
-                # No parece número, volver a pedir
-                return jsonify({
-                    "intencion":   "esperando_numero",
-                    "confianza":   "100%",
-                    "sentimiento": "neutral",
-                    "respuesta":   "Para conectarte con nuestro equipo necesito tu número de WhatsApp. ¿Me lo compartes? 😊",
-                })
-
-            numero_dado = mensaje
-
-            contexto_conversacion = ""
-            if coleccion is not None:
-                historial_lead = list(
-                    coleccion.find({"numero": numero}, {"_id": 0, "mensaje": 1, "respuesta": 1})
-                    .sort("timestamp", -1)
-                    .limit(4)
-                )
-                if historial_lead:
-                    lineas = []
-                    for h in reversed(historial_lead):
-                        lineas.append(f"Usuario: {h['mensaje']}")
-                        lineas.append(f"Bot: {h['respuesta']}")
-                    contexto_conversacion = "\n".join(lineas)
-
-            #
-            notificar_marco_con_contexto(numero_dado, intencion_pendiente, mensaje_original, contexto_conversacion)
-
-            db["estados"].delete_one({"numero": numero})
-
-    
-            if coleccion is not None:
-                try:
-                    coleccion.insert_one({
-                        "numero":      numero_dado,
-                        "mensaje":     f"[número capturado] {numero_dado}",
-                        "intencion":   "captura_numero",
-                        "confianza":   1.0,
-                        "sentimiento": "neutral",
-                        "score_sent":  0.0,
-                        "uso_rag":     False,
-                        "respuesta":   "Número enviado al equipo.",
-                        "timestamp":   datetime.now(),
-                    })
-                except Exception as mongo_err:
-                    print(f"No se pudo guardar en MongoDB: {mongo_err}")
-
-            return jsonify({
-                "intencion":   "captura_numero",
-                "confianza":   "100%",
-                "sentimiento": "neutral",
-                "respuesta": (
-                    "¡Listo! Nuestro equipo se pondrá en contacto contigo muy pronto. "
-                    "¿Hay algo más en lo que pueda ayudarte?"
-                ),
-            })
-
-        # 3. Sentimiento ────────────────────────────────────
+        # 2. Sentimiento 
         sentimiento, score_sentimiento = analizar_sentimiento(mensaje)
 
-        # 4. Intención ──────────────────────────────────────
+        # 3. Intención 
         intencion, confianza = predecir_intent(mensaje)
 
-        # 5. ¿Esta intención requiere atención humana? ──────
-        if intencion in INTENCIONES_REQUIEREN_HUMANO:
-
-
-            ya_dio_numero = False
-            if coleccion is not None:
-                captura_previa = coleccion.find_one({
-                    "numero":    numero,
-                    "intencion": "captura_numero",
-                })
-                if captura_previa:
-                    ya_dio_numero = True
-
-            if ya_dio_numero:
-                datos  = obtener_datos_por_intencion(intencion)
-                config = datos.get("config") or {}
-                respuesta_directa = llamar_groq([
-                    {"role": "system", "content": construir_prompt(intencion, datos, config, sentimiento)},
-                    {"role": "user",   "content": mensaje},
-                ])
-                return jsonify({
-                    "intencion":   intencion,
-                    "confianza":   f"{confianza:.0%}",
-                    "sentimiento": sentimiento,
-                    "respuesta":   respuesta_directa,
-                })
-
-            if db is not None:
-                db["estados"].replace_one(
-                    {"numero": numero},
-                    {
-                        "numero":              numero,
-                        "esperando_numero":    True,
-                        "intencion_pendiente": intencion,
-                        "mensaje_original":    mensaje,
-                    },
-                    upsert=True,
-                )
-
-            datos  = obtener_datos_por_intencion(intencion)
-            config = datos.get("config") or {}
-
-            respuesta_parcial = llamar_groq([
-                {"role": "system", "content": construir_prompt(intencion, datos, config, sentimiento)},
-                {"role": "user",   "content": mensaje},
-            ])
-
-            return jsonify({
-                "intencion":   intencion,
-                "confianza":   f"{confianza:.0%}",
-                "sentimiento": sentimiento,
-                "respuesta": (
-                    f"{respuesta_parcial}\n\n"
-                    "¿Me compartes tu número de WhatsApp para darte info personalizada?"
-                ),
-            })
-
-        # 6. Datos según intención (flujo normal) ───────────
+        # 4. Datos mínimos según intención 
         usar_rag = intencion == "Desconocido"
         datos    = obtener_datos_por_intencion(intencion)
         config   = datos.get("config") or {}
 
-        # 7. Historial reciente (últimos 3 intercambios) ────
+        # 5. Historial reciente (últimos 3 intercambios) 
         historial_groq = []
         if coleccion is not None:
             historial_db = list(
@@ -630,20 +405,20 @@ def chat():
                 historial_groq.append({"role": "user",      "content": h["mensaje"]})
                 historial_groq.append({"role": "assistant", "content": h["respuesta"]})
 
-        # 8. Prompt ─────────────────────────────────────────
+        # 6. Prompt
         if usar_rag and CONTEXTO_PDF:
             prompt_sistema = construir_prompt_rag(CONTEXTO_PDF, config, sentimiento)
         else:
             prompt_sistema = construir_prompt(intencion, datos, config, sentimiento)
 
-        # 9. Llamada a Groq ──────────────────────────────────
+        # 7. Llamada a Groq 
         respuesta = llamar_groq([
             {"role": "system", "content": prompt_sistema},
             *historial_groq,
             {"role": "user",   "content": mensaje},
         ])
 
-        # 10. Guardar en MongoDB ─────────────────────────────
+        # 8. Guardar en MongoDB 
         if coleccion is not None:
             try:
                 coleccion.insert_one({
@@ -660,7 +435,7 @@ def chat():
             except Exception as mongo_err:
                 print(f"No se pudo guardar en MongoDB: {mongo_err}")
 
-        # 11. Respuesta ──────────────────────────────────────
+        # 9. Respuesta 
         return jsonify({
             "intencion":   intencion,
             "confianza":   f"{confianza:.0%}",
@@ -690,17 +465,84 @@ def retrain():
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({
-        "status":          "ok",
-        "modelo_cargado":  mejor_modelo is not None,
-        "mongo_ok":        db is not None,
-        "groq_ok":         len(GROQ_KEYS) > 0,
-        "rag_listo":       bool(CONTEXTO_PDF),
-        "telegram_ok":     bool(TELEGRAM_TOKEN and TELEGRAM_CHAT_ID),
-        "timestamp":       datetime.now().isoformat(),
+        "status":         "ok",
+        "modelo_cargado": mejor_modelo is not None,
+        "mongo_ok":       db is not None,
+        "groq_ok":        len(GROQ_KEYS) > 0,
+        "rag_listo":      bool(CONTEXTO_PDF),
+        "timestamp":      datetime.now().isoformat(),
     }), 200
+
+
+@app.route("/whatsapp", methods=["POST"])
+def whatsapp():
+    try:
+        mensaje = request.form.get("Body", "").strip()
+        numero  = request.form.get("From", "anonimo")
+
+        es_valido, motivo = validar_entrada(mensaje)
+        if not es_valido:
+            respuesta_texto = RESPUESTAS_INVALIDAS.get(motivo, "¿En qué te puedo ayudar?")
+        else:
+            sentimiento, score_sentimiento = analizar_sentimiento(mensaje)
+            intencion, confianza = predecir_intent(mensaje)
+
+            usar_rag = intencion == "Desconocido"
+            datos    = obtener_datos_por_intencion(intencion)
+            config   = datos.get("config") or {}
+
+            historial_groq = []
+            if coleccion is not None:
+                historial_db = list(
+                    coleccion.find({"numero": numero}, {"_id": 0, "mensaje": 1, "respuesta": 1})
+                    .sort("timestamp", -1).limit(3)
+                )
+                for h in reversed(historial_db):
+                    historial_groq.append({"role": "user",      "content": h["mensaje"]})
+                    historial_groq.append({"role": "assistant", "content": h["respuesta"]})
+
+            if usar_rag and CONTEXTO_PDF:
+                prompt_sistema = construir_prompt_rag(CONTEXTO_PDF, config, sentimiento)
+            else:
+                prompt_sistema = construir_prompt(intencion, datos, config, sentimiento)
+
+            respuesta_texto = llamar_groq([
+                {"role": "system", "content": prompt_sistema},
+                *historial_groq,
+                {"role": "user",   "content": mensaje},
+            ])
+
+            if coleccion is not None:
+                try:
+                    coleccion.insert_one({
+                        "numero":      numero,
+                        "mensaje":     mensaje,
+                        "intencion":   intencion,
+                        "confianza":   round(confianza, 4),
+                        "sentimiento": sentimiento,
+                        "score_sent":  round(score_sentimiento, 4),
+                        "uso_rag":     usar_rag,
+                        "canal":       "whatsapp",
+                        "respuesta":   respuesta_texto,
+                        "timestamp":   datetime.now(),
+                    })
+                except Exception as e:
+                    print(f"No se pudo guardar en MongoDB: {e}")
+
+        resp = MessagingResponse()
+        resp.message(respuesta_texto)
+        return str(resp), 200, {"Content-Type": "text/xml"}
+
+    except Exception as e:
+        print(f"Error en /whatsapp: {e}")
+        resp = MessagingResponse()
+        resp.message(RESPUESTA_FALLBACK)
+        return str(resp), 200, {"Content-Type": "text/xml"}
 
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"Arrancando Flask en puerto {port}...")
     app.run(host="0.0.0.0", port=port)
+
+
