@@ -438,6 +438,206 @@ def llamar_groq(messages):
             continue
     return RESPUESTA_FALLBACK
 
+# ================== LÓGICA CENTRAL DEL CHATBOT ==================
+def procesar_mensaje(numero: str, mensaje: str) -> dict:
+    """
+    Retorna un diccionario con:
+    - respuesta: str
+    - intencion: str
+    - confianza: str
+    - sentimiento: str
+    """
+    # 1. Validación
+    es_valido, motivo = validar_entrada(mensaje)
+    if not es_valido:
+        return {
+            "respuesta":   RESPUESTAS_INVALIDAS.get(motivo, "¿En qué te puedo ayudar?"),
+            "intencion":   "invalido",
+            "confianza":   "0%",
+            "sentimiento": None,
+        }
+
+    # 2. ¿Estábamos esperando el número del usuario?
+    esperando_numero    = False
+    intencion_pendiente = None
+    mensaje_original    = None
+
+    if db is not None:
+        estado = db["estados"].find_one({"numero": numero})
+        if estado and estado.get("esperando_numero"):
+            esperando_numero    = True
+            intencion_pendiente = estado.get("intencion_pendiente")
+            mensaje_original    = estado.get("mensaje_original", "")
+
+    if esperando_numero:
+        solo_numeros = re.sub(r"[\s\-\(\)\+]", "", mensaje)
+        es_numero = solo_numeros.isdigit() and len(solo_numeros) >= 8
+
+        if not es_numero:
+            return {
+                "intencion":   "esperando_numero",
+                "confianza":   "100%",
+                "sentimiento": "neutral",
+                "respuesta":   "Para conectarte con nuestro equipo necesito tu número de WhatsApp. ¿Me lo compartes? 😊",
+            }
+
+        numero_dado = mensaje
+
+        contexto_conversacion = ""
+        if coleccion is not None:
+            historial_lead = list(
+                coleccion.find({"numero": numero}, {"_id": 0, "mensaje": 1, "respuesta": 1})
+                .sort("timestamp", -1)
+                .limit(4)
+            )
+            if historial_lead:
+                lineas = []
+                for h in reversed(historial_lead):
+                    lineas.append(f"Usuario: {h['mensaje']}")
+                    lineas.append(f"Bot: {h['respuesta']}")
+                contexto_conversacion = "\n".join(lineas)
+
+        notificar_marco_con_contexto(numero_dado, intencion_pendiente, mensaje_original, contexto_conversacion)
+
+        db["estados"].delete_one({"numero": numero})
+
+        if coleccion is not None:
+            try:
+                coleccion.insert_one({
+                    "numero":      numero_dado,
+                    "mensaje":     f"[número capturado] {numero_dado}",
+                    "intencion":   "captura_numero",
+                    "confianza":   1.0,
+                    "sentimiento": "neutral",
+                    "score_sent":  0.0,
+                    "uso_rag":     False,
+                    "respuesta":   "Número enviado al equipo.",
+                    "timestamp":   datetime.now(),
+                })
+            except Exception as mongo_err:
+                print(f"No se pudo guardar en MongoDB: {mongo_err}")
+
+        return {
+            "intencion":   "captura_numero",
+            "confianza":   "100%",
+            "sentimiento": "neutral",
+            "respuesta": (
+                "¡Listo! Nuestro equipo se pondrá en contacto contigo muy pronto. "
+                "¿Hay algo más en lo que pueda ayudarte?"
+            ),
+        }
+
+    # 3. Sentimiento
+    sentimiento, score_sentimiento = analizar_sentimiento(mensaje)
+
+    # 4. Intención
+    intencion, confianza = predecir_intent(mensaje)
+
+    # 5. ¿Esta intención requiere atención humana?
+    if intencion in INTENCIONES_REQUIEREN_HUMANO:
+        ya_dio_numero = False
+        if coleccion is not None:
+            captura_previa = coleccion.find_one({
+                "numero":    numero,
+                "intencion": "captura_numero",
+            })
+            if captura_previa:
+                ya_dio_numero = True
+
+        if ya_dio_numero:
+            datos  = obtener_datos_por_intencion(intencion)
+            config = datos.get("config") or {}
+            respuesta_directa = llamar_groq([
+                {"role": "system", "content": construir_prompt(intencion, datos, config, sentimiento)},
+                {"role": "user",   "content": mensaje},
+            ])
+            return {
+                "intencion":   intencion,
+                "confianza":   f"{confianza:.0%}",
+                "sentimiento": sentimiento,
+                "respuesta":   respuesta_directa,
+            }
+
+        if db is not None:
+            db["estados"].replace_one(
+                {"numero": numero},
+                {
+                    "numero":              numero,
+                    "esperando_numero":    True,
+                    "intencion_pendiente": intencion,
+                    "mensaje_original":    mensaje,
+                },
+                upsert=True,
+            )
+
+        datos  = obtener_datos_por_intencion(intencion)
+        config = datos.get("config") or {}
+
+        respuesta_parcial = llamar_groq([
+            {"role": "system", "content": construir_prompt(intencion, datos, config, sentimiento)},
+            {"role": "user",   "content": mensaje},
+        ])
+
+        return {
+            "intencion":   intencion,
+            "confianza":   f"{confianza:.0%}",
+            "sentimiento": sentimiento,
+            "respuesta": (
+                f"{respuesta_parcial}\n\n"
+                "¿Me compartes tu número de WhatsApp para darte info personalizada?"
+            ),
+        }
+
+    # 6. Flujo normal (sin requerir humano)
+    usar_rag = intencion == "Desconocido"
+    datos    = obtener_datos_por_intencion(intencion)
+    config   = datos.get("config") or {}
+
+    # Historial reciente
+    historial_groq = []
+    if coleccion is not None:
+        historial_db = list(
+            coleccion.find({"numero": numero}, {"_id": 0, "mensaje": 1, "respuesta": 1})
+            .sort("timestamp", -1)
+            .limit(3)
+        )
+        for h in reversed(historial_db):
+            historial_groq.append({"role": "user",      "content": h["mensaje"]})
+            historial_groq.append({"role": "assistant", "content": h["respuesta"]})
+
+    if usar_rag and CONTEXTO_PDF:
+        prompt_sistema = construir_prompt_rag(CONTEXTO_PDF, config, sentimiento)
+    else:
+        prompt_sistema = construir_prompt(intencion, datos, config, sentimiento)
+
+    respuesta = llamar_groq([
+        {"role": "system", "content": prompt_sistema},
+        *historial_groq,
+        {"role": "user",   "content": mensaje},
+    ])
+
+    if coleccion is not None:
+        try:
+            coleccion.insert_one({
+                "numero":      numero,
+                "mensaje":     mensaje,
+                "intencion":   intencion,
+                "confianza":   round(confianza, 4),
+                "sentimiento": sentimiento,
+                "score_sent":  round(score_sentimiento, 4),
+                "uso_rag":     usar_rag,
+                "respuesta":   respuesta,
+                "timestamp":   datetime.now(),
+            })
+        except Exception as mongo_err:
+            print(f"No se pudo guardar en MongoDB: {mongo_err}")
+
+    return {
+        "intencion":   intencion,
+        "confianza":   f"{confianza:.0%}",
+        "sentimiento": sentimiento,
+        "respuesta":   respuesta,
+    }
 
 # ─────────────────────────────────────────────
 # FLASK APP
@@ -467,206 +667,8 @@ def chat():
         mensaje = data.get("mensaje", "").strip()
         numero  = data.get("numero", "anonimo")
 
-        # 1. Validación ─────────────────────────────────────
-        es_valido, motivo = validar_entrada(mensaje)
-        if not es_valido:
-            return jsonify({
-                "respuesta":   RESPUESTAS_INVALIDAS.get(motivo, "¿En qué te puedo ayudar?"),
-                "intencion":   "invalido",
-                "sentimiento": None,
-            }), 200
-
-        # 2. ¿Estábamos esperando el número del usuario? ────
-        esperando_numero    = False
-        intencion_pendiente = None
-        mensaje_original    = None
-
-        if db is not None:
-            estado = db["estados"].find_one({"numero": numero})
-            if estado and estado.get("esperando_numero"):
-                esperando_numero    = True
-                intencion_pendiente = estado.get("intencion_pendiente")
-                mensaje_original    = estado.get("mensaje_original", "")
-
-        if esperando_numero:
-            # Verificar si el mensaje parece un número de teléfono
-            solo_numeros = re.sub(r"[\s\-\(\)\+]", "", mensaje)
-            es_numero = solo_numeros.isdigit() and len(solo_numeros) >= 8
-
-            if not es_numero:
-                # No parece número, volver a pedir
-                return jsonify({
-                    "intencion":   "esperando_numero",
-                    "confianza":   "100%",
-                    "sentimiento": "neutral",
-                    "respuesta":   "Para conectarte con nuestro equipo necesito tu número de WhatsApp. ¿Me lo compartes? 😊",
-                })
-
-            numero_dado = mensaje
-
-            contexto_conversacion = ""
-            if coleccion is not None:
-                historial_lead = list(
-                    coleccion.find({"numero": numero}, {"_id": 0, "mensaje": 1, "respuesta": 1})
-                    .sort("timestamp", -1)
-                    .limit(4)
-                )
-                if historial_lead:
-                    lineas = []
-                    for h in reversed(historial_lead):
-                        lineas.append(f"Usuario: {h['mensaje']}")
-                        lineas.append(f"Bot: {h['respuesta']}")
-                    contexto_conversacion = "\n".join(lineas)
-
-            #
-            notificar_marco_con_contexto(numero_dado, intencion_pendiente, mensaje_original, contexto_conversacion)
-
-            db["estados"].delete_one({"numero": numero})
-
-    
-            if coleccion is not None:
-                try:
-                    coleccion.insert_one({
-                        "numero":      numero_dado,
-                        "mensaje":     f"[número capturado] {numero_dado}",
-                        "intencion":   "captura_numero",
-                        "confianza":   1.0,
-                        "sentimiento": "neutral",
-                        "score_sent":  0.0,
-                        "uso_rag":     False,
-                        "respuesta":   "Número enviado al equipo.",
-                        "timestamp":   datetime.now(),
-                    })
-                except Exception as mongo_err:
-                    print(f"No se pudo guardar en MongoDB: {mongo_err}")
-
-            return jsonify({
-                "intencion":   "captura_numero",
-                "confianza":   "100%",
-                "sentimiento": "neutral",
-                "respuesta": (
-                    "¡Listo! Nuestro equipo se pondrá en contacto contigo muy pronto. "
-                    "¿Hay algo más en lo que pueda ayudarte?"
-                ),
-            })
-
-        # 3. Sentimiento ────────────────────────────────────
-        sentimiento, score_sentimiento = analizar_sentimiento(mensaje)
-
-        # 4. Intención ──────────────────────────────────────
-        intencion, confianza = predecir_intent(mensaje)
-
-        # 5. ¿Esta intención requiere atención humana? ──────
-        if intencion in INTENCIONES_REQUIEREN_HUMANO:
-
-
-            ya_dio_numero = False
-            if coleccion is not None:
-                captura_previa = coleccion.find_one({
-                    "numero":    numero,
-                    "intencion": "captura_numero",
-                })
-                if captura_previa:
-                    ya_dio_numero = True
-
-            if ya_dio_numero:
-                datos  = obtener_datos_por_intencion(intencion)
-                config = datos.get("config") or {}
-                respuesta_directa = llamar_groq([
-                    {"role": "system", "content": construir_prompt(intencion, datos, config, sentimiento)},
-                    {"role": "user",   "content": mensaje},
-                ])
-                return jsonify({
-                    "intencion":   intencion,
-                    "confianza":   f"{confianza:.0%}",
-                    "sentimiento": sentimiento,
-                    "respuesta":   respuesta_directa,
-                })
-
-            if db is not None:
-                db["estados"].replace_one(
-                    {"numero": numero},
-                    {
-                        "numero":              numero,
-                        "esperando_numero":    True,
-                        "intencion_pendiente": intencion,
-                        "mensaje_original":    mensaje,
-                    },
-                    upsert=True,
-                )
-
-            datos  = obtener_datos_por_intencion(intencion)
-            config = datos.get("config") or {}
-
-            respuesta_parcial = llamar_groq([
-                {"role": "system", "content": construir_prompt(intencion, datos, config, sentimiento)},
-                {"role": "user",   "content": mensaje},
-            ])
-
-            return jsonify({
-                "intencion":   intencion,
-                "confianza":   f"{confianza:.0%}",
-                "sentimiento": sentimiento,
-                "respuesta": (
-                    f"{respuesta_parcial}\n\n"
-                    "¿Me compartes tu número de WhatsApp para darte info personalizada?"
-                ),
-            })
-
-        # 6. Datos según intención (flujo normal) ───────────
-        usar_rag = intencion == "Desconocido"
-        datos    = obtener_datos_por_intencion(intencion)
-        config   = datos.get("config") or {}
-
-        # 7. Historial reciente (últimos 3 intercambios) ────
-        historial_groq = []
-        if coleccion is not None:
-            historial_db = list(
-                coleccion.find({"numero": numero}, {"_id": 0, "mensaje": 1, "respuesta": 1})
-                .sort("timestamp", -1)
-                .limit(3)
-            )
-            for h in reversed(historial_db):
-                historial_groq.append({"role": "user",      "content": h["mensaje"]})
-                historial_groq.append({"role": "assistant", "content": h["respuesta"]})
-
-        # 8. Prompt ─────────────────────────────────────────
-        if usar_rag and CONTEXTO_PDF:
-            prompt_sistema = construir_prompt_rag(CONTEXTO_PDF, config, sentimiento)
-        else:
-            prompt_sistema = construir_prompt(intencion, datos, config, sentimiento)
-
-        # 9. Llamada a Groq ──────────────────────────────────
-        respuesta = llamar_groq([
-            {"role": "system", "content": prompt_sistema},
-            *historial_groq,
-            {"role": "user",   "content": mensaje},
-        ])
-
-        # 10. Guardar en MongoDB ─────────────────────────────
-        if coleccion is not None:
-            try:
-                coleccion.insert_one({
-                    "numero":      numero,
-                    "mensaje":     mensaje,
-                    "intencion":   intencion,
-                    "confianza":   round(confianza, 4),
-                    "sentimiento": sentimiento,
-                    "score_sent":  round(score_sentimiento, 4),
-                    "uso_rag":     usar_rag,
-                    "respuesta":   respuesta,
-                    "timestamp":   datetime.now(),
-                })
-            except Exception as mongo_err:
-                print(f"No se pudo guardar en MongoDB: {mongo_err}")
-
-        # 11. Respuesta ──────────────────────────────────────
-        return jsonify({
-            "intencion":   intencion,
-            "confianza":   f"{confianza:.0%}",
-            "sentimiento": sentimiento,
-            "respuesta":   respuesta,
-        })
+        resultado = procesar_mensaje(numero, mensaje)
+        return jsonify(resultado), 200
 
     except Exception as e:
         print(f"Error inesperado en /chat: {e}")
@@ -699,6 +701,122 @@ def health():
         "timestamp":       datetime.now().isoformat(),
     }), 200
 
+# ================== WEBHOOKS PARA MULTICANAL ==================
+# Dependencias: python-telegram-bot, pywa, requests (ya instalado)
+
+# ---------- TELEGRAM ----------
+from telegram import Update
+import telegram
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # Token del bot (mismo que TELEGRAM_TOKEN)
+if TELEGRAM_BOT_TOKEN:
+    telegram_bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
+    print("Telegram bot configurado para webhook.")
+else:
+    telegram_bot = None
+    print("Telegram bot no configurado (falta TELEGRAM_BOT_TOKEN).")
+
+@app.route("/webhook/telegram", methods=["POST"])
+def telegram_webhook():
+    if telegram_bot is None:
+        return "Telegram bot not configured", 500
+    try:
+        update = Update.de_json(request.get_json(force=True), telegram_bot)
+        if update.message and update.message.text:
+            chat_id = update.message.chat.id
+            user_text = update.message.text
+            resultado = procesar_mensaje(str(chat_id), user_text)
+            telegram_bot.send_message(chat_id=chat_id, text=resultado["respuesta"])
+        return "OK", 200
+    except Exception as e:
+        print(f"Error en webhook Telegram: {e}")
+        return "Error", 500
+
+# ---------- WHATSAPP BUSINESS ----------
+from pywa import WhatsApp
+
+WA_PHONE_ID = os.getenv("WA_PHONE_ID")
+WA_ACCESS_TOKEN = os.getenv("WA_ACCESS_TOKEN")
+WA_APP_ID = os.getenv("WA_APP_ID")
+WA_APP_SECRET = os.getenv("WA_APP_SECRET")
+WA_VERIFY_TOKEN = os.getenv("WA_VERIFY_TOKEN", "gokulab_wa_verify")
+
+if all([WA_PHONE_ID, WA_ACCESS_TOKEN, WA_APP_ID, WA_APP_SECRET]):
+    wa_client = WhatsApp(
+        phone_id=WA_PHONE_ID,
+        token=WA_ACCESS_TOKEN,
+        app_id=WA_APP_ID,
+        app_secret=WA_APP_SECRET,
+    )
+    print("WhatsApp Business configurado.")
+else:
+    wa_client = None
+    print("Faltan variables para WhatsApp Business.")
+
+@app.route("/webhook/whatsapp", methods=["GET", "POST"])
+def whatsapp_webhook():
+    if request.method == "GET":
+        mode = request.args.get("hub.mode")
+        token = request.args.get("hub.verify_token")
+        challenge = request.args.get("hub.challenge")
+        if mode == "subscribe" and token == WA_VERIFY_TOKEN:
+            return challenge, 200
+        return "Verification failed", 403
+
+    if wa_client is None:
+        return "WhatsApp not configured", 500
+
+    try:
+        data = request.get_json()
+        entry = data.get("entry", [{}])[0]
+        changes = entry.get("changes", [{}])[0]
+        value = changes.get("value", {})
+        if "messages" in value:
+            message = value["messages"][0]
+            from_number = message["from"]
+            text = message["text"]["body"]
+            resultado = procesar_mensaje(from_number, text)
+            wa_client.send_text(to=from_number, text=resultado["respuesta"])
+        return "OK", 200
+    except Exception as e:
+        print(f"Error en webhook WhatsApp: {e}")
+        return "Error", 500
+
+# ---------- MESSENGER / INSTAGRAM ----------
+PAGE_ACCESS_TOKEN = os.getenv("META_PAGE_ACCESS_TOKEN")
+META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "gokulab_meta_verify")
+
+@app.route("/webhook/meta", methods=["GET", "POST"])
+def meta_webhook():
+    if request.method == "GET":
+        mode = request.args.get("hub.mode")
+        token = request.args.get("hub.verify_token")
+        challenge = request.args.get("hub.challenge")
+        if mode == "subscribe" and token == META_VERIFY_TOKEN:
+            return challenge, 200
+        return "Verification failed", 403
+
+    if not PAGE_ACCESS_TOKEN:
+        return "Meta not configured", 500
+
+    try:
+        data = request.get_json()
+        for entry in data.get("entry", []):
+            for messaging in entry.get("messaging", []):
+                sender_id = messaging["sender"]["id"]
+                if "message" in messaging and "text" in messaging["message"]:
+                    user_text = messaging["message"]["text"]
+                    resultado = procesar_mensaje(sender_id, user_text)
+                    url = f"https://graph.facebook.com/v18.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+                    payload = {
+                        "recipient": {"id": sender_id},
+                        "message": {"text": resultado["respuesta"]}
+                    }
+                    requests.post(url, json=payload)
+        return "OK", 200
+    except Exception as e:
+        print(f"Error en webhook Meta: {e}")
+        return "Error", 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
