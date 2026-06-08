@@ -652,10 +652,9 @@ CORS(app)
  #   return send_file("logo.png")
 
 
-#@app.route("/")
-#def index():
-#    return send_file("chat.html")
-
+@app.route("/")
+def index():
+   return jsonify({"status": "ok", "message": "Chatbot API is running"})
 
 @app.route("/chat", methods=["POST"])
 def chat():
