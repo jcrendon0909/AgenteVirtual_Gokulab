@@ -647,14 +647,14 @@ app = Flask(__name__)
 CORS(app)
 
 
-@app.route("/logo.png")
-def logo():
-    return send_file("logo.png")
+# @app.route("/logo.png")
+#def logo():
+ #   return send_file("logo.png")
 
 
-@app.route("/")
-def index():
-    return send_file("chat.html")
+#@app.route("/")
+#def index():
+#    return send_file("chat.html")
 
 
 @app.route("/chat", methods=["POST"])
