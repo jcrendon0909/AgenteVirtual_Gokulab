@@ -725,7 +725,10 @@ def telegram_webhook():
             chat_id = update.message.chat.id
             user_text = update.message.text
             resultado = procesar_mensaje(str(chat_id), user_text)
-            telegram_bot.send_message(chat_id=chat_id, text=resultado["respuesta"])
+            #telegram_bot.send_message(chat_id=chat_id, text=resultado["respuesta"])
+# Opción 1: si usas versión síncrona, no cambia nada. Pero si da error, prueba:
+            import asyncio
+            asyncio.run(telegram_bot.send_message(chat_id=chat_id, text=resultado["respuesta"]))
         return "OK", 200
     except Exception as e:
         print(f"Error en webhook Telegram: {e}")
