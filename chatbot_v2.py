@@ -59,10 +59,10 @@ else:
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
-    print("Telegram configurado.")
-else:
-    print("Telegram no configurado (revisa TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID).")
+#if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
+ #   print("Telegram configurado.")
+#else:
+#    print("Telegram no configurado (revisa TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID).")
 
 # ─── Analizador de sentimiento ──────────────
 analizador_sentimiento = SentimentIntensityAnalyzer()
@@ -717,23 +717,23 @@ else:
 
 @app.route("/webhook/telegram", methods=["POST"])
 def telegram_webhook():
-    if telegram_bot is None:
-        return "Telegram bot not configured", 500
     try:
-        update = Update.de_json(request.get_json(force=True), telegram_bot)
-        if update.message and update.message.text:
-            chat_id = update.message.chat.id
-            user_text = update.message.text
+        update = request.get_json(force=True)
+        if update and "message" in update and "text" in update["message"]:
+            chat_id = update["message"]["chat"]["id"]
+            user_text = update["message"]["text"]
             resultado = procesar_mensaje(str(chat_id), user_text)
-            #telegram_bot.send_message(chat_id=chat_id, text=resultado["respuesta"])
-# Opción 1: si usas versión síncrona, no cambia nada. Pero si da error, prueba:
-            import asyncio
-            asyncio.run(telegram_bot.send_message(chat_id=chat_id, text=resultado["respuesta"]))
+            # Enviar respuesta usando requests (síncrono, sin problemas de asyncio)
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            payload = {
+                "chat_id": chat_id,
+                "text": resultado["respuesta"]
+            }
+            requests.post(url, json=payload, timeout=5)
         return "OK", 200
     except Exception as e:
         print(f"Error en webhook Telegram: {e}")
-        return "Error", 500
-
+        return "OK", 200   # Siempre devolver 200 para que Telegram no reintente
 # ---------- WHATSAPP BUSINESS ----------
 from pywa import WhatsApp
 
