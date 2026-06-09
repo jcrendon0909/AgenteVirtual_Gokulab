@@ -497,7 +497,7 @@ def procesar_mensaje(numero: str, mensaje: str) -> dict:
                     lineas.append(f"Bot: {h['respuesta']}")
                 contexto_conversacion = "\n".join(lineas)
 
-        notificar_marco_con_contexto(numero_dado, intencion_pendiente, mensaje_original, contexto_conversacion)
+        #notificar_marco_con_contexto(numero_dado, intencion_pendiente, mensaje_original, contexto_conversacion)
 
         db["estados"].delete_one({"numero": numero})
 
