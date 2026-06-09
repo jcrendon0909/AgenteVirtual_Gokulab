@@ -386,7 +386,7 @@ INSTRUCCIONES = {
 }
 
 def construir_prompt(intencion, datos, config, sentimiento):
-    academia = config.get("nombre_academia", "Gōku Lab")
+    academia = config.get("nombre_academia", "GōkuLab")
     instruccion = INSTRUCCIONES.get(intencion, f"Responde sobre: {intencion}").replace("{academia}", academia)
 
     return (
@@ -402,7 +402,7 @@ def construir_prompt(intencion, datos, config, sentimiento):
 
 
 def construir_prompt_rag(contexto_pdf, config, sentimiento):
-    academia = config.get("nombre_academia", "Gōku Lab")
+    academia = config.get("nombre_academia", "GōkuLab")
 
     return (
         f"Eres el asistente virtual de {academia}. Responde en español mexicano, natural y conciso.\n"
