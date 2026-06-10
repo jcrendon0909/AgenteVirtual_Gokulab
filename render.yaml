@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: chatbot-gokulab-valeria
+    name: goku_agente
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: python chatbot_v2.py
