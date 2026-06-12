@@ -59,12 +59,12 @@ else:
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-#if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
- #   print("Telegram configurado.")
-#else:
-#    print("Telegram no configurado (revisa TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID).")
+if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
+    print("Telegram configurado.")
+else:
+    print("Telegram no configurado (revisa TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID).")
 
-# ─── Analizador de sentimiento ──────────────
+ ─── Analizador de sentimiento ──────────────
 analizador_sentimiento = SentimentIntensityAnalyzer()
 
 # ─────────────────────────────────────────────
