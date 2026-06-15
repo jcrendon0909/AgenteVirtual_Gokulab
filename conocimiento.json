@@ -1,0 +1,107 @@
+[
+  {
+    "tema": "quienes_somos",
+    "palabras_clave": ["que es", "quienes son", "goku lab", "academia", "edades", "para quien"],
+    "contenido": "Gōku Lab es una academia de conocimiento para niñas, niños, jóvenes y adultos (6 a 100 años). Entrenamos la mente lógica-analítica, la creatividad y las habilidades blandas mediante tecnología, retos y proyectos reales, en grupos pequeños con atención personalizada."
+  },
+  {
+    "tema": "plataforma_digital",
+    "palabras_clave": ["plataforma", "app", "acceso", "materiales", "24/7", "online"],
+    "contenido": "Contamos con una plataforma de innovación y aprendizaje interactivo. Cada alumno tiene un área personal con actividades, seguimiento y acceso 24/7 a cursos y materiales complementarios."
+  },
+  {
+    "tema": "certificaciones",
+    "palabras_clave": ["certificado", "certificacion", "openedg", "examen", "oficial", "diploma"],
+    "contenido": "Preparamos a alumnos de todas las edades para los exámenes oficiales de OpenEDG, con una tasa de aprobación superior al 85%."
+  },
+  {
+    "tema": "seguimiento_evaluacion",
+    "palabras_clave": ["progreso", "evaluacion", "reporte", "trimestre", "diploma", "avance"],
+    "contenido": "Al finalizar cada trimestre entregamos informes de progreso detallados que reflejan el desarrollo de competencias del alumno, permitiendo a padres y estudiantes evaluar avances y establecer metas. Al concluir el curso, se entrega un diploma que certifica la participación y las habilidades adquiridas."
+  },
+  {
+    "tema": "eventos_comunidad",
+    "palabras_clave": ["eventos", "competencias", "torneo", "scratch", "roblox", "unity", "comunidad"],
+    "contenido": "A lo largo del año organizamos eventos especiales y competiciones para mantener viva nuestra comunidad: retos temáticos en Scratch y Roblox, competiciones en Unity y Python, y más."
+  },
+  {
+    "tema": "formas_pago_costos",
+    "palabras_clave": ["costo", "precio", "pago", "mensualidad", "descuento", "cuanto cuesta"],
+    "contenido": "Los precios mostrados en cada curso corresponden a rangos orientativos mensuales. El costo exacto puede variar según la modalidad, duración y número de cursos tomados. Los alumnos inscritos en más de un curso pueden acceder a descuentos especiales. Para un precio exacto y un plan personalizado, comunícate directamente con el equipo de Gōku Lab."
+  },
+  {
+    "tema": "clases_por_semana",
+    "palabras_clave": ["cuantas clases", "por semana", "duracion", "minutos"],
+    "contenido": "En la mayoría de los cursos se ofrece una clase semanal de 90 minutos. El alumno puede tomar clases adicionales si lo requiere."
+  },
+  {
+    "tema": "clase_perdida_reagendar",
+    "palabras_clave": ["no puedo ir", "falta", "reagendar", "perdi mi clase", "no asistir"],
+    "contenido": "Entendemos que pueden surgir imprevistos. Ofrecemos flexibilidad en los horarios y la posibilidad de reagendar la clase, sujeto a disponibilidad."
+  },
+  {
+    "tema": "clase_muestra",
+    "palabras_clave": ["clase muestra", "master class", "demo", "prueba", "gratis"],
+    "contenido": "Sí, contamos con clases muestra llamadas Master Class, que permiten conocer la metodología de enseñanza antes de inscribirse. Estas clases son completamente gratuitas."
+  },
+  {
+    "tema": "becas_descuentos",
+    "palabras_clave": ["beca", "descuento", "ayuda economica", "apoyo"],
+    "contenido": "Actualmente no contamos con un sistema de becas o descuentos fijo. Para información sobre opciones de pago personalizadas, puedes acercarte directamente al equipo de Gōku Lab."
+  },
+  {
+    "tema": "cambio_horario",
+    "palabras_clave": ["cambiar horario", "cambio de grupo", "otro horario"],
+    "contenido": "Sí se puede cambiar de horario después de inscribirse, siempre que exista disponibilidad en otro grupo u horario."
+  },
+  {
+    "tema": "alumnos_por_grupo",
+    "palabras_clave": ["cuantos alumnos", "tamaño de grupo", "cupo"],
+    "contenido": "Los grupos manejan cupo limitado para brindar una atención más personalizada."
+  },
+  {
+    "tema": "cursos_vacacionales",
+    "palabras_clave": ["vacaciones", "intensivo", "curso de verano", "temporada"],
+    "contenido": "Sí, en ciertas temporadas contamos con cursos intensivos y programas vacacionales."
+  },
+  {
+    "tema": "estacionamiento",
+    "palabras_clave": ["estacionamiento", "donde estacionar", "parking", "auto", "coche"],
+    "contenido": "La Plaza San Mateo, donde está ubicada la academia, cuenta con estacionamiento. Los primeros 30 minutos son gratis."
+  },
+  {
+    "tema": "multiples_cursos",
+    "palabras_clave": ["mas de un curso", "dos cursos", "varios cursos al mismo tiempo"],
+    "contenido": "Sí, se puede tomar más de un curso al mismo tiempo siempre que los horarios sean compatibles."
+  },
+  {
+    "tema": "cancelacion_inscripcion",
+    "palabras_clave": ["cancelar", "dar de baja", "pausar inscripcion"],
+    "contenido": "Para información sobre cancelaciones o pausas de inscripción, comunícate directamente con el equipo de Gōku Lab."
+  },
+  {
+    "tema": "graduaciones",
+    "palabras_clave": ["graduacion", "proyecto final", "diploma", "termina el curso"],
+    "contenido": "Sí, los alumnos dedican las últimas 4 clases a realizar un proyecto final, que presentan el día de la graduación, donde reciben su diploma de finalización."
+  },
+  {
+    "tema": "redes_sociales",
+    "palabras_clave": ["redes sociales", "instagram", "facebook", "tiktok", "sigueme"],
+    "contenido": "Puedes seguirnos en Instagram como @goku_lab, en Facebook como GokuLabMx, y en TikTok como @algorithmicsnc. Nuestra página web es https://gokulab.mx/ y nuestro correo es algorithmicsnc@outlook.com."
+  },
+  {
+    "tema": "directores_academia",
+    "palabras_clave": ["director", "fundador", "quien dirige", "juan carlos", "claudia"],
+    "contenido": "Juan Carlos Rendón es matemático y experto en tecnología e IA, con más de 30 años enseñando en la UNAM y experiencia en empresas como IBM y Microsoft. Claudia Sierra es actuaria, escritora y especialista en investigación de mercados y emprendimiento, con más de 25 años de experiencia en empresas como Procter & Gamble."
+  },
+  {
+    "tema": "inclusion_necesidades_especiales",
+    "palabras_clave": ["autismo", "necesidades especiales", "inclusion", "discapacidad"],
+    "contenido": "REVISAR_CON_DIRECCION: La academia acepta niños con autismo (Grado C1). [Pendiente: ampliar con detalle de adaptaciones disponibles antes de publicar — ver auditoría, sección Fase 4]."
+  },
+  {
+    "tema": "despedida_marca",
+    "palabras_clave": ["adios", "gracias", "hasta luego", "nos vemos"],
+    "contenido": "¡Te esperamos en Gōku Lab! Juega, Aprende y Emprende."
+  }
+]
