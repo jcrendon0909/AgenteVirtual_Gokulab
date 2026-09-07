@@ -576,7 +576,7 @@ def llamar_groq(messages):
         try:
             cliente = Groq(api_key=key)
             respuesta = cliente.chat.completions.create(
-                model="llama-3.1-8b-instant",  # mayor límite diario (500k tokens/día)
+                model="llama-3.3-70b-versatile",  # mayor límite diario (500k tokens/día)
                 max_tokens=120,
                 temperature=0.7,
                 messages=messages,
@@ -1037,7 +1037,18 @@ def test_groq():
         except Exception as e:
             resultados.append(f"Key {i}: FALLÓ -> {str(e)}")
     return jsonify({"resultados": resultados}), 200
-
+@app.route("/list-models", methods=["GET"])
+def list_models():
+    """Lista todos los modelos disponibles en Groq usando la primera clave."""
+    try:
+        if not GROQ_KEYS:
+            return jsonify({"error": "No hay claves de Groq configuradas"}), 500
+        client = Groq(api_key=GROQ_KEYS[0])
+        models = client.models.list()
+        model_ids = [m.id for m in models.data]
+        return jsonify({"models": model_ids}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"Arrancando Flask en puerto {port}...")
