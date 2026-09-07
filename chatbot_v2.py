@@ -576,7 +576,7 @@ def llamar_groq(messages):
         try:
             cliente = Groq(api_key=key)
             respuesta = cliente.chat.completions.create(
-                model="llama-3.3-70b-versatile",  # mayor límite diario (500k tokens/día)
+                model="llama3-70b-8192",  # mayor límite diario (500k tokens/día)
                 max_tokens=120,
                 temperature=0.7,
                 messages=messages,
