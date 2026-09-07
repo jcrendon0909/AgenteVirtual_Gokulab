@@ -1020,7 +1020,23 @@ def meta_webhook():
     except Exception as e:
         print(f"Error en webhook Meta: {e}")
         return "Error", 500
-
+@app.route("/test-groq", methods=["GET"])
+def test_groq():
+    """Prueba todas las claves de Groq y devuelve el resultado."""
+    resultados = []
+    for i, key in enumerate(GROQ_KEYS, 1):
+        try:
+            cliente = Groq(api_key=key)
+            respuesta = cliente.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": "Di 'Hola' en una palabra"}],
+                max_tokens=5,
+                temperature=0.1,
+            )
+            resultados.append(f"Key {i}: OK -> {respuesta.choices[0].message.content}")
+        except Exception as e:
+            resultados.append(f"Key {i}: FALLÓ -> {str(e)}")
+    return jsonify({"resultados": resultados}), 200
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
