@@ -576,7 +576,7 @@ def llamar_groq(messages):
         try:
             cliente = Groq(api_key=key)
             respuesta = cliente.chat.completions.create(
-                model="llama3-70b-8192",  # mayor límite diario (500k tokens/día)
+                model="llama-3.3-70b-versatile",  # ✅ CORREGIDO
                 max_tokens=120,
                 temperature=0.7,
                 messages=messages,
@@ -586,7 +586,6 @@ def llamar_groq(messages):
             print(f"Key falló: {e}. Intentando siguiente...")
             continue
     return RESPUESTA_FALLBACK
-
 
 # ================== LÓGICA CENTRAL DEL CHATBOT ==================
 def procesar_mensaje(numero: str, mensaje: str) -> dict:
@@ -1022,13 +1021,12 @@ def meta_webhook():
         return "Error", 500
 @app.route("/test-groq", methods=["GET"])
 def test_groq():
-    """Prueba todas las claves de Groq y devuelve el resultado."""
     resultados = []
     for i, key in enumerate(GROQ_KEYS, 1):
         try:
             cliente = Groq(api_key=key)
             respuesta = cliente.chat.completions.create(
-                model="lllama3-70b-8192",
+                model="llama-3.3-70b-versatile",  # ✅ CORREGIDO
                 messages=[{"role": "user", "content": "Di 'Hola' en una palabra"}],
                 max_tokens=5,
                 temperature=0.1,
@@ -1037,6 +1035,7 @@ def test_groq():
         except Exception as e:
             resultados.append(f"Key {i}: FALLÓ -> {str(e)}")
     return jsonify({"resultados": resultados}), 200
+
 @app.route("/list-models", methods=["GET"])
 def list_models():
     """Lista todos los modelos disponibles en Groq usando la primera clave."""
