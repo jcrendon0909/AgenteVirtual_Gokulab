@@ -576,7 +576,7 @@ def llamar_groq(messages):
         try:
             cliente = Groq(api_key=key)
             respuesta = cliente.chat.completions.create(
-                model="llama-3.3-70b-versatile",  # ✅ CORREGIDO
+                model="openai/gpt-oss-120b",  # ✅ CORREGIDO
                 max_tokens=120,
                 temperature=0.7,
                 messages=messages,
@@ -1026,7 +1026,7 @@ def test_groq():
         try:
             cliente = Groq(api_key=key)
             respuesta = cliente.chat.completions.create(
-                model="llama-3.3-70b-versatile",  # ✅ CORREGIDO
+                model="openai/gpt-oss-120b",  # ✅ CORREGIDO
                 messages=[{"role": "user", "content": "Di 'Hola' en una palabra"}],
                 max_tokens=5,
                 temperature=0.1,
