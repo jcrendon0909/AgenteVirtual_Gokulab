@@ -1028,7 +1028,7 @@ def test_groq():
         try:
             cliente = Groq(api_key=key)
             respuesta = cliente.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model="lllama3-70b-8192",
                 messages=[{"role": "user", "content": "Di 'Hola' en una palabra"}],
                 max_tokens=5,
                 temperature=0.1,
