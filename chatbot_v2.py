@@ -571,29 +571,26 @@ RESPUESTA_FALLBACK = (
     "Por favor, intenta de nuevo en un momento o escríbenos directamente por WhatsApp. 🙏"
 )
 
+MODELOS_GROQ = [
+    "openai/gpt-oss-120b",
+    "llama-3.1-8b-instant",   # Fallback rápido si el reasoning model falla
+]
+
 def llamar_groq(messages):
-    for i, key in enumerate(GROQ_KEYS, 1):
-        try:
-            cliente = Groq(api_key=key)
-            respuesta = cliente.chat.completions.create(
-                model="openai/gpt-oss-120b",
-                max_tokens=500,        # ⬆️ Aumentado para modelos de razonamiento
-                temperature=0.7,
-                messages=messages,
-            )
-            contenido = respuesta.choices[0].message.content
-            print(f"[Groq] Key {i} OK. Respuesta: {contenido[:80] if contenido else 'VACÍA'}...")
-            if contenido and contenido.strip():
-                return contenido
-            else:
-                print(f"[Groq] Key {i} devolvió contenido vacío. Intentando siguiente...")
+    for key in GROQ_KEYS:
+        for model in MODELOS_GROQ:
+            try:
+                cliente = Groq(api_key=key)
+                kwargs = {"model": model, "messages": messages, "max_tokens": 1500, "temperature": 0.7}
+                if "gpt-oss" in model:
+                    kwargs["reasoning_effort"] = "low"
+                respuesta = cliente.chat.completions.create(**kwargs)
+                contenido = respuesta.choices[0].message.content
+                if contenido and contenido.strip():
+                    return contenido.strip()
+            except Exception as e:
+                print(f"❌ {model} con key falló: {e}")
                 continue
-        except Exception as e:
-            import traceback
-            print(f"❌ [Groq] Key {i} FALLÓ: {type(e).__name__}: {e}")
-            print(traceback.format_exc())
-            continue
-    print("🚨 [Groq] TODAS las keys fallaron. Devolviendo fallback.")
     return RESPUESTA_FALLBACK
 
 # ================== LÓGICA CENTRAL DEL CHATBOT ==================
