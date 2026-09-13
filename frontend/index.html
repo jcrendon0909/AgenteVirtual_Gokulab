@@ -3,8 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Gōku, Tu amigo y asistente</title>
+<title>Gōku, Tu amigo y asistente | Gōku Lab</title>
+<meta name="description" content="Súper Agente Gōku - Asistente virtual de Gōku Lab. Consulta cursos, horarios, costos y más.">
 <link rel="icon" type="image/png" href="/logo.jpg" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -55,7 +58,6 @@
     box-shadow: var(--sombra);
     border-left: 1px solid var(--gris-borde);
     border-right: 1px solid var(--gris-borde);
-    padding-bottom: 52px;
   }
 
   /* ── HEADER ── */
@@ -208,23 +210,6 @@
 
   .msg.user .msg-time { text-align: right; }
 
-  /* Tags de intención/sentimiento */
-  .msg-tags {
-    display: flex; gap: 4px; margin-top: 4px;
-    flex-wrap: wrap; padding-left: 34px;
-  }
-
-  .tag {
-    font-size: 9px; font-family: 'Nunito', sans-serif; font-weight: 700;
-    letter-spacing: 0.04em; padding: 2px 6px; border-radius: 10px; text-transform: uppercase;
-  }
-
-  .tag.intent { background: rgba(0,174,239,0.1); color: var(--azul); border: 1px solid rgba(0,174,239,0.2); }
-  .tag.sent-positivo { background: rgba(92,184,92,0.1); color: var(--verde); border: 1px solid rgba(92,184,92,0.25); }
-  .tag.sent-negativo { background: rgba(230,51,41,0.1); color: var(--rojo); border: 1px solid rgba(230,51,41,0.2); }
-  .tag.sent-neutral  { background: rgba(136,153,170,0.1); color: var(--gris-texto); border: 1px solid var(--gris-borde); }
-  .tag.conf { background: rgba(245,168,0,0.1); color: #B87D00; border: 1px solid rgba(245,168,0,0.2); }
-
   /* Typing indicator */
   .typing {
     display: flex; align-items: center; gap: 4px;
@@ -251,15 +236,13 @@
 
   /* ── SUGERENCIAS ── */
   .suggestions {
-    padding: 8px 14px; 
-    display: flex; 
+    padding: 8px 14px;
+    display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    background: white; 
+    background: white;
     border-top: 1px solid var(--gris-borde);
   }
-
-  .suggestions::-webkit-scrollbar { display: none; }
 
   .chip {
     white-space: nowrap; font-size: 12px;
@@ -310,35 +293,6 @@
   .send-btn:active { transform: scale(0.93); }
   .send-btn:disabled { background: var(--gris-borde); cursor: not-allowed; box-shadow: none; }
   .send-btn svg { width: 18px; height: 18px; fill: white; }
-
-  /* ── CONFIG URL ── */
-  .url-bar {
-    position: fixed; bottom: 0; left: 0; right: 0;
-    background: rgba(255,255,255,0.97); backdrop-filter: blur(8px);
-    border-top: 1px solid var(--gris-borde);
-    padding: 8px 14px; display: flex; gap: 8px; align-items: center;
-    z-index: 100; font-size: 12px; box-shadow: 0 -2px 12px rgba(0,0,0,0.06);
-  }
-
-  .url-bar label { color: var(--gris-texto); white-space: nowrap; font-size: 11px; font-weight: 600; }
-
-  .url-input {
-    flex: 1; background: var(--gris-fondo);
-    border: 1.5px solid var(--gris-borde); border-radius: 8px;
-    padding: 6px 10px; color: #2D3748;
-    font-family: 'Quicksand', sans-serif; font-size: 12px; outline: none;
-  }
-
-  .url-input:focus { border-color: var(--azul); }
-
-  .url-save {
-    background: var(--amarillo); border: none; border-radius: 8px;
-    padding: 6px 14px; color: white; font-size: 12px;
-    font-family: 'Nunito', sans-serif; font-weight: 800;
-    cursor: pointer; white-space: nowrap; transition: background 0.15s;
-  }
-
-  .url-save:hover { background: #D99200; }
 
   /* Toast */
   .toast {
@@ -409,7 +363,7 @@
       onkeydown="handleKey(event)"
       oninput="autoResize(this)"
     ></textarea>
-    <button class="send-btn" id="sendBtn" onclick="sendMessage()">
+    <button class="send-btn" id="sendBtn" onclick="sendMessage()" aria-label="Enviar mensaje">
       <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
         <path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/>
       </svg>
@@ -418,32 +372,22 @@
 
 </div>
 
-<!-- Barra de configuración de URL 
-<div class="url-bar">
-  <label>🔗 Backend:</label>
-  <input class="url-input" id="urlInput" type="text" placeholder="https://tu-ngrok-url.ngrok-free.app"/>
-  <button class="url-save" onclick="saveUrl()">Guardar</button>
-</div> -->
 <!-- Toast de notificación -->
 <div class="toast" id="toast"></div>
 
 <script>
-  // ── LÓGICA ORIGINAL (primer código) ────────────────────────────
-  let API_URL = localStorage.getItem('gokulab_api_url') || 'https://chatbot-gokulab-valeria.onrender.com';
-  const USER_ID = 'tester_' + Math.random().toString(36).substr(2, 6);
+  // ── CONFIGURACIÓN ────────────────────────────────
+  const API_URL = 'https://agentevirtual-gokulab.onrender.com';
+  const USER_ID = 'web_' + Math.random().toString(36).substr(2, 8);
+  const TIMEOUT_MS = 30000; // 30 segundos máximo
   let isSending = false;
 
-  // Cargar URL guardada en el input
-  document.getElementById('urlInput').value = API_URL;
+  // Limpia URLs viejas cacheadas en el navegador
+  try {
+    localStorage.removeItem('gokulab_api_url');
+  } catch (e) { /* localStorage no disponible, ignorar */ }
 
-  function saveUrl() {
-    const val = document.getElementById('urlInput').value.trim().replace(/\/$/, '');
-    if (!val) return;
-    API_URL = val;
-    localStorage.setItem('gokulab_api_url', val);
-    showToast(' URL guardada');
-  }
-
+  // ── UTILIDADES ───────────────────────────────────
   function showToast(msg, isError = false) {
     const t = document.getElementById('toast');
     t.textContent = msg;
@@ -468,13 +412,13 @@
     }
   }
 
-  function appendMsg(role, text, meta = null) {
+  // ── RENDERIZADO DE MENSAJES ──────────────────────
+  function appendMsg(role, text) {
     const msgs = document.getElementById('messages');
     const wrap = document.createElement('div');
     wrap.className = `msg ${role}`;
 
     if (role === 'bot') {
-      // Fila con ícono + burbuja (estilo diseño azul)
       const row = document.createElement('div');
       row.className = 'msg-row';
 
@@ -495,10 +439,7 @@
       time.style.paddingLeft = '34px';
       time.textContent = getTime();
       wrap.appendChild(time);
-
-
     } else {
-      // Mensaje del usuario
       const bubble = document.createElement('div');
       bubble.className = 'bubble';
       bubble.textContent = text;
@@ -535,6 +476,7 @@
     if (el) el.remove();
   }
 
+  // ── ENVÍO DE MENSAJES ────────────────────────────
   async function sendMessage(text = null) {
     if (isSending) return;
     const input = document.getElementById('msgInput');
@@ -542,43 +484,68 @@
     if (!msg) return;
 
     isSending = true;
-    document.getElementById('sendBtn').disabled = true;
+    const sendBtn = document.getElementById('sendBtn');
+    sendBtn.disabled = true;
     input.value = '';
     input.style.height = 'auto';
 
     appendMsg('user', msg);
     showTyping();
 
+    // Timeout por si el servidor tarda demasiado (modelos de razonamiento)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
     try {
       const res = await fetch(`${API_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mensaje: msg, numero: USER_ID }),
+        signal: controller.signal,
       });
 
+      clearTimeout(timeoutId);
       hideTyping();
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
 
-      appendMsg('bot', data.respuesta);
-
+      if (data && data.respuesta) {
+        appendMsg('bot', data.respuesta);
+      } else {
+        appendMsg('bot', 'Recibí una respuesta vacía del servidor. Intenta de nuevo.');
+      }
     } catch (err) {
+      clearTimeout(timeoutId);
       hideTyping();
-      appendMsg('bot', 'No pude conectarme al servidor. Verifica que Flask esté corriendo y que la URL sea correcta.');
+
+      let errorMsg = 'No pude conectarme al servidor. Intenta de nuevo en un momento.';
+      if (err.name === 'AbortError') {
+        errorMsg = 'La respuesta está tardando más de lo esperado. Por favor, intenta de nuevo.';
+      } else if (err.message && err.message.includes('HTTP')) {
+        errorMsg = `Error del servidor (${err.message}). Intenta de nuevo en un momento.`;
+      }
+
+      appendMsg('bot', errorMsg);
       showToast('Error de conexión', true);
-      console.error(err);
+      console.error('[Chat Error]', err);
     }
 
     isSending = false;
-    document.getElementById('sendBtn').disabled = false;
+    sendBtn.disabled = false;
     input.focus();
   }
 
   function sendSuggestion(text) {
     sendMessage(text);
   }
+
+  // Auto-focus al cargar
+  window.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('msgInput').focus();
+  });
 </script>
 
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v31edd6df95cf4e85bb4c19e7a9bdbcba1788362987495" integrity="sha512-iIg7k2xntmwu6/uSb5tpc/hySgZc4eoL31yB29W6tJFo2akwjPWcEqnCEdJvGexCL0KEQwVYv5BlowfhVz26hg==" data-cf-beacon='{"version":"2024.11.0","token":"1ed01502f45a4b7a8508fbf8f4e1e8c9","r":1,"spa":2}' crossorigin="anonymous"></script>
 </body>
 </html>
