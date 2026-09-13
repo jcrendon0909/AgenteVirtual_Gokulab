@@ -572,19 +572,28 @@ RESPUESTA_FALLBACK = (
 )
 
 def llamar_groq(messages):
-    for key in GROQ_KEYS:
+    for i, key in enumerate(GROQ_KEYS, 1):
         try:
             cliente = Groq(api_key=key)
             respuesta = cliente.chat.completions.create(
-                model="openai/gpt-oss-120b",  # ✅ CORREGIDO
-                max_tokens=120,
+                model="openai/gpt-oss-120b",
+                max_tokens=500,        # ⬆️ Aumentado para modelos de razonamiento
                 temperature=0.7,
                 messages=messages,
             )
-            return respuesta.choices[0].message.content
+            contenido = respuesta.choices[0].message.content
+            print(f"[Groq] Key {i} OK. Respuesta: {contenido[:80] if contenido else 'VACÍA'}...")
+            if contenido and contenido.strip():
+                return contenido
+            else:
+                print(f"[Groq] Key {i} devolvió contenido vacío. Intentando siguiente...")
+                continue
         except Exception as e:
-            print(f"Key falló: {e}. Intentando siguiente...")
+            import traceback
+            print(f"❌ [Groq] Key {i} FALLÓ: {type(e).__name__}: {e}")
+            print(traceback.format_exc())
             continue
+    print("🚨 [Groq] TODAS las keys fallaron. Devolviendo fallback.")
     return RESPUESTA_FALLBACK
 
 # ================== LÓGICA CENTRAL DEL CHATBOT ==================
