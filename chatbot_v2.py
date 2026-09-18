@@ -891,10 +891,62 @@ def _flujo_requiere_humano(numero, mensaje, intenciones, confianza, sentimiento,
         "canal": canal,
     }
 
+def formatear_lista_cursos(cursos, max_cursos=25):
+    """Genera una respuesta con la lista completa de cursos desde Mongo."""
+    if not cursos:
+        return None
+
+    lineas = ["📚 *Estos son nuestros cursos disponibles:*", ""]
+    for c in cursos[:max_cursos]:
+        nombre = (c.get("nombreCurso") or "").strip()
+        edad = (c.get("edad_dirigida") or "").strip()
+        modalidad = (c.get("modalidad") or "").strip()
+        if not nombre:
+            continue
+        extras = []
+        if edad:
+            extras.append(edad)
+        if modalidad and modalidad.lower() != "presencial":
+            extras.append(modalidad)
+        if extras:
+            lineas.append(f"• {nombre} — {', '.join(extras)}")
+        else:
+            lineas.append(f"• {nombre}")
+
+    lineas.append("")
+    lineas.append("¿Sobre cuál te gustaría saber más? Puedo darte horarios, costos o duración 😊")
+    return "\n".join(lineas)
+
 def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None):
     """Genera respuesta usando el flujo normal (sin captura de número)."""
     usar_rag = intenciones == ["Desconocido"]
-
+    # ── Respuesta directa para Consultar_Cursos (evita que Groq resuma) ──
+    if intenciones == ["Consultar_Cursos"]:
+        datos_cursos = obtener_datos_por_intencion("Consultar_Cursos")
+        lista_directa = formatear_lista_cursos(datos_cursos.get("cursos", []))
+        if lista_directa:
+            # Guardar en historial como cualquier otra respuesta
+            if coleccion is not None:
+                try:
+                    coleccion.insert_one({
+                        "numero":      numero,
+                        "mensaje":     mensaje,
+                        "intencion":   "Consultar_Cursos",
+                        "confianza":   1.0,
+                        "sentimiento": "neutral",
+                        "canal":       canal,
+                        "respuesta":   lista_directa,
+                        "timestamp":   datetime.now(),
+                    })
+                except Exception as e:
+                    logger.error(f"Error guardando cursos directos: {e}")
+            return {
+                "respuesta": formatear_respuesta(lista_directa, canal),
+                "intencion": "Consultar_Cursos",
+                "confianza": "100%",
+                "sentimiento": "neutral",
+                "canal": canal,
+            }
     todos_datos = {}
     for i in intenciones:
         todos_datos.update(obtener_datos_por_intencion(i))
