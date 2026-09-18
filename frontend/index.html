@@ -203,6 +203,103 @@
     word-break: break-all;
   }
 
+  /* ── CONTENIDO ENRIQUECIDO EN RESPUESTAS DEL BOT ── */
+  .msg.bot .bubble table.bot-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    margin: 8px 0;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--gris-borde);
+  }
+
+  .msg.bot .bubble table.bot-table th,
+  .msg.bot .bubble table.bot-table td {
+    padding: 6px 8px;
+    border: 1px solid var(--gris-borde);
+    text-align: left;
+    vertical-align: top;
+    line-height: 1.4;
+  }
+
+  .msg.bot .bubble table.bot-table th {
+    background: linear-gradient(135deg, rgba(0,174,239,0.12), rgba(124,58,237,0.08));
+    font-weight: 700;
+    color: #0f172a;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+
+  .msg.bot .bubble table.bot-table tr:nth-child(even) td {
+    background: rgba(0,174,239,0.03);
+  }
+
+  .msg.bot .bubble h3,
+  .msg.bot .bubble h4 {
+    font-family: 'Nunito', sans-serif;
+    font-size: 13px;
+    font-weight: 800;
+    margin: 10px 0 6px;
+    color: #1e293b;
+    letter-spacing: -0.01em;
+  }
+
+  .msg.bot .bubble ul {
+    margin: 6px 0;
+    padding-left: 4px;
+    list-style: none;
+  }
+
+  .msg.bot .bubble li {
+    margin: 3px 0;
+    position: relative;
+    padding-left: 14px;
+    line-height: 1.5;
+  }
+
+  .msg.bot .bubble li::before {
+    content: "•";
+    position: absolute;
+    left: 2px;
+    color: var(--azul);
+    font-weight: 900;
+    font-size: 14px;
+  }
+
+  .msg.bot .bubble hr {
+    border: none;
+    border-top: 1px solid var(--gris-borde);
+    margin: 10px 0;
+  }
+
+  .msg.bot .bubble code {
+    background: rgba(0,174,239,0.1);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 12px;
+    color: #0e7490;
+  }
+
+  .msg.bot .bubble pre {
+    background: #f4f7fb;
+    padding: 10px;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 6px 0;
+    border: 1px solid var(--gris-borde);
+    font-size: 11px;
+  }
+
+  /* Permitir que respuestas con tablas/headers sean más anchas */
+  .msg.bot:has(table),
+  .msg.bot:has(h3),
+  .msg.bot:has(h4) {
+    max-width: 96%;
+  }
+
   .msg.user .bubble {
     background: var(--azul); color: white;
     border-bottom-right-radius: 4px;
@@ -429,21 +526,72 @@
     }
   }
 
+  // ── RENDERIZADOR DE MARKDOWN ─────────────────────
   function renderizarTextoBot(texto) {
+    // 1. Escapar HTML peligroso
     let out = texto
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
 
-    out = out.replace(/\*(.+?)\*/g, '<strong>$1</strong>');
-    out = out.replace(/_([^_\n]+)_/g, '<em>$1</em>');
+    // 2. Bloques de código ```...```
+    out = out.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
 
+    // 3. Código inline `code`
+    out = out.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+
+    // 4. Headers
+    out = out.replace(/^### (.+)$/gm, '<h4>$1</h4>');
+    out = out.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+    out = out.replace(/^# (.+)$/gm, '<h3>$1</h3>');
+
+    // 5. Tablas markdown
     out = out.replace(
-      /(https?:\/\/[^\s<]+?)([.,;:!?)\]]*)(?=\s|<|$)/g,
-      (match, url, punct) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>${punct}`
+      /(^\|.+\|\s*\n\|[\s\-:|]+\|\s*\n(?:\|.+\|\s*\n?)+)/gm,
+      function(table) {
+        const rows = table.trim().split('\n');
+        if (rows.length < 2) return table;
+        let html = '<table class="bot-table"><tbody>';
+        rows.forEach((row, i) => {
+          if (/^\|[\s\-:|]+\|$/.test(row.trim())) return;
+          const cells = row.split('|').slice(1, -1).map(c => c.trim());
+          const tag = i === 0 ? 'th' : 'td';
+          html += '<tr>' + cells.map(c => `<${tag}>${c}</${tag}>`).join('') + '</tr>';
+        });
+        html += '</tbody></table>';
+        return html;
+      }
     );
 
+    // 6. Negritas
+    out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+    // 7. Cursivas
+    out = out.replace(/(^|[^*])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>');
+    out = out.replace(/_([^_\n]+)_/g, '<em>$1</em>');
+
+    // 8. Listas
+    out = out.replace(/^\s*[-*•]\s+(.+)$/gm, '<li>$1</li>');
+    out = out.replace(/^\s*\d+\.\s+(.+)$/gm, '<li>$1</li>');
+    out = out.replace(/(<li>[\s\S]*?<\/li>)(?:\s*<li>[\s\S]*?<\/li>)*/g, function(match) {
+      return '<ul>' + match + '</ul>';
+    });
+
+    // 9. Separadores
+    out = out.replace(/^\s*[-*_]{3,}\s*$/gm, '<hr>');
+
+    // 10. URLs (sin puntuación final)
+    out = out.replace(
+      /(https?:\/\/[^\s<]+?)([.,;:!?)\]]*)(?=\s|<|$)/g,
+      (m, url, punct) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>${punct}`
+    );
+
+    // 11. Saltos de línea (limpiando alrededor de bloques HTML)
     out = out.replace(/\n/g, '<br>');
+    out = out.replace(/<br>\s*(<table|<ul|<h[3-4]|<hr|<pre|<li)/g, '$1');
+    out = out.replace(/(<\/table>|<\/ul>|<\/h[3-4]>|<hr>|<\/pre>|<\/li>)\s*<br>/g, '$1');
+    out = out.replace(/(<li>)\s*<br>/g, '$1');
+    out = out.replace(/<br>\s*(<\/li>)/g, '$1');
 
     return out;
   }
