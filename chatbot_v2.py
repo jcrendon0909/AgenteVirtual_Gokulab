@@ -259,12 +259,23 @@ def predecir_intent(texto, umbral=0.5, umbral_secundario=0.35):
 # ─────────────────────────────────────────────
 # DATOS POR INTENCIÓN
 # ─────────────────────────────────────────────
-@lru_cache(maxsize=32)
-def _obtener_config_general():
-    """Cachea la config general por 32 llamadas."""
+# Cache con TTL para datos_generales (se refresca cada 60s)
+_config_cache = {"data": None, "timestamp": 0}
+_config_cache_lock = Lock()
+CONFIG_CACHE_TTL = 60  # segundos
+
+def _obtener_config_general(force_refresh=False):
+    """Devuelve config general con cache TTL de 60 segundos."""
     if db is None:
         return {}
-    return db["datos_generales"].find_one({}, {"_id": 0}) or {}
+    ahora = time.time()
+    with _config_cache_lock:
+        if (force_refresh 
+            or _config_cache["data"] is None 
+            or ahora - _config_cache["timestamp"] > CONFIG_CACHE_TTL):
+            _config_cache["data"] = db["datos_generales"].find_one({}, {"_id": 0}) or {}
+            _config_cache["timestamp"] = ahora
+        return _config_cache["data"]
 
 def obtener_datos_por_intencion(intencion):
     if db is None:
@@ -441,17 +452,21 @@ INSTRUCCIONES = {
         "Si el curso no aparece en los datos, dilo claramente."
     ),
     "Consultar_Ubicacion": (
-        "Da la dirección y el link de Maps en UNA sola oración. "
-        "NO menciones referencias largas."
+        "Da la dirección completa en UNA oración, el link de Google Maps, "
+        "y las referencias en UNA oración adicional. "
+        "Ejemplo: 'Estamos en [dirección]. Aquí el mapa: [link]. Nos ubicas a un costado del Sodimac, arriba de Cinemex y Toks.'"
     ),
+
     "Consultar_Modalidad": "Explica si las clases son presenciales, online o híbridas por curso. Máximo 2 oraciones.",
     "Consultar_Certificacion": (
         "Si tienes el campo 'certificacion', explícalo en 2 oraciones. "
         "Si NO lo tienes, di: 'Déjame consultar con el equipo sobre los certificados'. NO inventes."
     ),
     "Consultar_ClaseDemo": (
-        "Explica que existe una Master Class gratuita. "
-        "NO menciones correos, formularios ni WhatsApp. NO inventes fechas."
+        "Explica que ofrecemos una clase demo gratuita de 90 minutos para conocer la metodología. "
+        "Comparte el link de agendamiento que aparece en los datos. "
+        "Si el usuario pide más detalles, invítalo a agendar por WhatsApp o por el link. "
+        "NO inventes fechas ni horarios. Máximo 3 oraciones."
     ),
     "Consultar_FormasPago": "Menciona métodos de pago y opción de abonos. Máximo 2 oraciones.",
     "Consultar_RequisitosEdad": "Explica el rango de edad por curso. Máximo 3 oraciones.",
@@ -1233,6 +1248,22 @@ def list_models():
         return jsonify({"models": [m.id for m in models.data]}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route("/clear-config-cache", methods=["POST"])
+def clear_config_cache():
+    """Fuerza la recarga de datos_generales. PROTEGIDO con X-Admin-Token."""
+    if not verificar_admin():
+        return jsonify({"error": "no autorizado"}), 401
+    global _config_cache
+    with _config_cache_lock:
+        _config_cache["data"] = None
+        _config_cache["timestamp"] = 0
+    _obtener_config_general(force_refresh=True)
+    return jsonify({
+        "status": "ok",
+        "mensaje": "Cache de datos_generales limpiado",
+        "datos": _config_cache["data"],
+    }), 200
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
