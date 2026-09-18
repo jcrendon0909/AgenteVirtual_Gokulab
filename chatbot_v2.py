@@ -306,9 +306,10 @@ def obtener_datos_por_intencion(intencion):
         }
 
     elif intencion == "Consultar_Horarios":
-        horarios = list(db["horarios"].find({}, {"_id": 0, "nombreCurso": 1, "horarios": 1}))
-        return {"horarios": horarios, "config": config_mini}
-
+        return {
+            "horarios_generales (Sujeto a disponibilidad)": config.get("horarios_generales"),
+            "config":             config_mini,
+        }
     elif intencion == "Consultar_Certificacion":
         return {"certificacion": config.get("certificacion"), "config": config_mini}
 
@@ -450,9 +451,10 @@ INSTRUCCIONES = {
         "NUNCA inventes precios. NO menciones WhatsApp ni correos."
     ),
     "Consultar_Horarios": (
-        "Si el usuario mencionó un curso específico, presenta SOLO los horarios de ese curso. "
-        "Si no mencionó ninguno, pregúntale qué curso le interesa. "
-        "Si el curso no aparece en los datos, dilo claramente."
+        "Da el horario general de atención que aparece en los datos (campo 'horarios_generales'). "
+        "Aclara que los horarios específicos de cada curso varían por ciclo, y que pueden "
+        "confirmarlo por WhatsApp o agendando una clase demo gratuita. "
+        "NO inventes horarios por curso. Máximo 3 oraciones."
     ),
     "Consultar_Ubicacion": (
         "Da la dirección completa en UNA oración, el link de Google Maps, "
