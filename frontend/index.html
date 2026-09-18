@@ -427,9 +427,16 @@
       iconDiv.innerHTML = `<img src="/logo.png" alt="GL" onerror="this.parentElement.innerHTML='<span class=&quot;bot-icon-fallback&quot;>GL</span>'"/>`;
 
       const bubble = document.createElement('div');
-      bubble.className = 'bubble';
-      bubble.textContent = text;
-
+        bubble.className = 'bubble';
+        // Detectar URLs y convertirlas en enlaces clickeables de forma segura
+        bubble.innerHTML = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\*(.+?)\*/g, '<strong>$1</strong>')
+        .replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#00AEEF; text-decoration:underline; word-break:break-all;">$1</a>')
+        .replace(/\n/g, '<br>');
+      
       row.appendChild(iconDiv);
       row.appendChild(bubble);
       wrap.appendChild(row);
