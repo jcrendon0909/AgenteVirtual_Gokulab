@@ -1,7 +1,9 @@
 # ============================================================
-# CHATBOT GŌKU LAB - v2.4
+# CHATBOT GŌKU LAB - v2.5
+# - Modo híbrido: intención + RAG combinados
+# - Endpoint /test-rag para diagnóstico
+# - RAG mejorado con palabras_clave y tema, umbral 0.15
 # - Fix: flujo "sí" → clase demo con link
-# - RAG mejorado: usa palabras_clave y tema, umbral 0.15
 # ============================================================
 import os
 import re
@@ -91,29 +93,29 @@ analizador_sentimiento = SentimentIntensityAnalyzer()
 # ─────────────────────────────────────────────
 # CONSTANTES
 # ─────────────────────────────────────────────
-RAG_TOP_K            = 3
-RAG_UMBRAL           = 0.15    # ⬆️ Subido de 0.05 para ser más estricto
+RAG_TOP_K             = 3
+RAG_UMBRAL            = 0.15      # umbral general para RAG puro (intención Desconocido)
+RAG_UMBRAL_HIBRIDO    = 0.20      # umbral más estricto para el modo híbrido
+RAG_TOP_K_HIBRIDO     = 2         # solo 2 chunks para no saturar el prompt
 UMBRAL_PALABRAS_CORTO = 3
 TIMEOUT_ESPERANDO_NUMERO = 3
-MAX_LEN_MENSAJE      = 1000
+MAX_LEN_MENSAJE       = 1000
 
 MODELOS_GROQ = [
     {"nombre": "openai/gpt-oss-120b", "max_tokens": 800, "es_razonamiento": True},
     {"nombre": "llama-3.1-8b-instant", "max_tokens": 400, "es_razonamiento": False},
 ]
 
-# Palabras que indican confirmación afirmativa corta
 PALABRAS_AFIRMATIVAS = {
     "si", "sí", "yes", "claro", "ok", "okay", "dale", "va", "sale",
-    "por favor", "porfa", "adelante", "quiero", "sip", "simon", "sale pues",
-    "vamos", "hagamoslo", "hagámoslo", "va que va", "yes please"
+    "por favor", "porfa", "adelante", "quiero", "sip", "simon",
+    "vamos", "hagamoslo", "hagámoslo", "va que va"
 }
 
 # ─────────────────────────────────────────────
 # UTILIDADES GENERALES
 # ─────────────────────────────────────────────
 def _a_texto(valor):
-    """Convierte cualquier valor (str, list, None, número) a string limpio."""
     if valor is None:
         return ""
     if isinstance(valor, list):
@@ -147,15 +149,13 @@ def es_numero_valido(texto):
     return solo_numeros.isdigit() and len(solo_numeros) >= 8
 
 def es_afirmacion_corta(mensaje):
-    """Detecta si el mensaje es una confirmación corta tipo 'sí', 'ok', 'dale'."""
     limpio = mensaje.strip().lower().rstrip("!.,?")
     return limpio in PALABRAS_AFIRMATIVAS
 
 # ─────────────────────────────────────────────
-# RAG (MEJORADO: usa palabras_clave y tema)
+# RAG
 # ─────────────────────────────────────────────
 def cargar_chunks_conocimiento():
-    """Carga chunks desde Mongo incluyendo palabras_clave y tema en el índice."""
     if db is None:
         return []
     try:
@@ -173,7 +173,6 @@ def cargar_chunks_conocimiento():
             if isinstance(kws, str):
                 kws = [kws]
             kws_texto = " ".join(_a_texto(k) for k in kws if k)
-            # Texto para indexar: palabras clave + tema + contenido
             texto_indice = f"{kws_texto} {tema} {contenido}".strip()
             chunks.append({
                 "contenido": contenido,
@@ -295,7 +294,7 @@ def predecir_intent(texto, umbral=0.5, umbral_secundario=0.35):
     return intenciones, confianzas
 
 # ─────────────────────────────────────────────
-# DATOS POR INTENCIÓN (con cache TTL)
+# DATOS POR INTENCIÓN
 # ─────────────────────────────────────────────
 _config_cache = {"data": None, "timestamp": 0}
 _config_cache_lock = Lock()
@@ -538,6 +537,37 @@ def construir_prompt_multiple(intenciones, todos_datos, config, sentimiento):
         f"7. Cuando incluyas una URL, colócala al FINAL de la oración y NO pongas punto ni coma después."
     )
 
+def construir_prompt_hibrido(intenciones, todos_datos, config, chunks_relevantes, sentimiento):
+    """Prompt que combina instrucciones de intención + datos estructurados + chunks de conocimiento."""
+    academia = config.get("nombre_academia", "Gōku Lab")
+
+    instrucciones_combinadas = []
+    for intencion in intenciones:
+        instruccion = INSTRUCCIONES.get(intencion, f"Responde sobre: {intencion}")
+        instruccion = instruccion.replace("{academia}", academia)
+        instrucciones_combinadas.append(f"- {instruccion}")
+
+    contexto_conocimiento = "\n".join(f"- {c}" for c in chunks_relevantes)
+
+    return (
+        GUARDIA_ROL +
+        f"Eres el asistente virtual de {academia}. Responde en español mexicano, natural y conciso.\n"
+        f"Tono: {TONO_MAP.get(sentimiento, TONO_MAP['neutral'])}\n"
+        f"El usuario hizo una consulta sobre: {', '.join(intenciones)}\n"
+        f"Instrucciones:\n{chr(10).join(instrucciones_combinadas)}\n"
+        f"Datos estructurados (JSON): {todos_datos}\n"
+        f"Información complementaria de nuestra academia (úsala SOLO si es relevante para la consulta):\n{contexto_conocimiento}\n"
+        f"{EJEMPLOS_ESTILO}\n"
+        f"Reglas estrictas:\n"
+        f"1. No inventes información. Si un dato no está, di que lo consultarás.\n"
+        f"2. Máximo 3 oraciones O 3 líneas de lista.\n"
+        f"3. Sin viñetas de markdown. Usa '•' o saltos de línea si es lista.\n"
+        f"4. Máximo 1 emoji por respuesta.\n"
+        f"5. Termina con UNA pregunta SOLO si no es despedida.\n"
+        f"6. NUNCA pidas el número de WhatsApp, correo, o datos de contacto.\n"
+        f"7. Cuando incluyas una URL, colócala al FINAL de la oración y NO pongas punto después."
+    )
+
 def construir_prompt_rag(chunks_relevantes, config, sentimiento):
     academia = config.get("nombre_academia", "Gōku Lab")
     contexto = "\n".join(f"- {c}" for c in chunks_relevantes)
@@ -662,7 +692,7 @@ def marcar_mensaje_procesado(message_id, canal, numero):
         logger.error(f"Error marcando mensaje: {e}")
 
 # ─────────────────────────────────────────────
-# UTILIDADES DE CURSOS (TOLERANTES A LISTAS)
+# UTILIDADES DE CURSOS
 # ─────────────────────────────────────────────
 def _parsear_edad_min(edad_str):
     if not edad_str:
@@ -719,7 +749,6 @@ def respuesta_clase_demo(numero, canal):
 
     respuesta = f"¡Perfecto! 😊 {masterclass}"
 
-    # Guardar en historial
     if coleccion is not None:
         try:
             coleccion.insert_one({
@@ -1023,6 +1052,12 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
         todos_datos.update(obtener_datos_por_intencion(i))
     config = todos_datos.get("config") or {}
 
+    # ─── NUEVO: Siempre buscar chunks relevantes (modo híbrido) ───
+    chunks_relevantes_hibrido = buscar_chunks_relevantes(
+        mensaje, CHUNKS_CONOCIMIENTO, VEC_RAG, MATRIZ_RAG,
+        k=RAG_TOP_K_HIBRIDO, umbral=RAG_UMBRAL_HIBRIDO
+    )
+
     # Historial reciente
     historial_groq = []
     if coleccion is not None:
@@ -1034,9 +1069,7 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
             historial_groq.append({"role": "user",      "content": h["mensaje"]})
             historial_groq.append({"role": "assistant", "content": h["respuesta"]})
 
-    # ── NUEVO: Detección de "sí" tras oferta de demo ──
-    # Si el usuario responde corto y afirmativo, y el último mensaje del bot
-    # ofreció agendar la clase demo, saltamos directamente a la respuesta de demo.
+    # ── Detección de "sí" tras oferta de demo ──
     if es_afirmacion_corta(mensaje) and historial_groq:
         ultimo_bot = ""
         for m in reversed(historial_groq):
@@ -1056,18 +1089,22 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
         es_corto = len(mensaje.strip().split()) <= UMBRAL_PALABRAS_CORTO
     usa_contexto_corto = usar_rag and es_corto and bool(historial_groq)
 
-    chunks_relevantes = []
-
     if usa_contexto_corto:
         prompt = construir_prompt_continuacion(config, "neutral")
     elif usar_rag:
-        chunks_relevantes = buscar_chunks_relevantes(mensaje, CHUNKS_CONOCIMIENTO, VEC_RAG, MATRIZ_RAG)
-        logger.info(f"[RAG] query='{mensaje[:50]}' chunks={len(chunks_relevantes)}")
-        if chunks_relevantes:
-            prompt = construir_prompt_rag(chunks_relevantes, config, "neutral")
+        # Intención desconocida → RAG puro
+        if chunks_relevantes_hibrido:
+            prompt = construir_prompt_rag(chunks_relevantes_hibrido, config, "neutral")
         else:
             prompt = construir_prompt_sin_info(config, "neutral")
+    elif chunks_relevantes_hibrido:
+        # NUEVO: Intención conocida + chunks relevantes → modo híbrido
+        logger.info(f"[Híbrido] intenciones={intenciones} chunks={len(chunks_relevantes_hibrido)}")
+        prompt = construir_prompt_hibrido(
+            intenciones, todos_datos, config, chunks_relevantes_hibrido, "neutral"
+        )
     else:
+        # Intención conocida sin chunks relevantes → modo normal
         prompt = construir_prompt_multiple(intenciones, todos_datos, config, "neutral")
 
     respuesta = llamar_groq([
@@ -1085,7 +1122,7 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
                 "confianza":      0.8,
                 "sentimiento":    "neutral",
                 "canal":          canal,
-                "uso_rag":        bool(chunks_relevantes),
+                "uso_rag":        bool(chunks_relevantes_hibrido),
                 "contexto_corto": usa_contexto_corto,
                 "respuesta":      respuesta,
                 "timestamp":      datetime.now(),
@@ -1190,6 +1227,7 @@ def health():
         "groq_ok":         len(GROQ_KEYS) > 0,
         "rag_chunks":      len(CHUNKS_CONOCIMIENTO),
         "rag_umbral":      RAG_UMBRAL,
+        "rag_umbral_hibrido": RAG_UMBRAL_HIBRIDO,
         "telegram_ok":     bool(TELEGRAM_TOKEN and TELEGRAM_CHAT_ID),
         "admin_protegido": bool(ADMIN_TOKEN),
         "firma_meta_ok":   bool(META_APP_SECRET),
@@ -1382,6 +1420,39 @@ def list_models():
         return jsonify({"models": [m.id for m in models.data]}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route("/test-rag", methods=["GET"])
+def test_rag():
+    """Diagnóstico: ver qué chunks matchean una consulta."""
+    if not verificar_admin():
+        return jsonify({"error": "no autorizado"}), 401
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify({"error": "falta parámetro ?q="}), 400
+
+    if VEC_RAG is None or MATRIZ_RAG is None:
+        return jsonify({"error": "RAG no inicializado"}), 500
+
+    q_vec = VEC_RAG.transform([limpiar_texto(q)])
+    similitudes = cosine_similarity(q_vec, MATRIZ_RAG)[0]
+    idx_ordenados = similitudes.argsort()[::-1][:5]
+
+    resultados = []
+    for i in idx_ordenados:
+        if similitudes[i] > 0:
+            resultados.append({
+                "tema":      CHUNKS_CONOCIMIENTO[i]["tema"],
+                "similitud": round(float(similitudes[i]), 4),
+                "preview":   CHUNKS_CONOCIMIENTO[i]["contenido"][:180] + "...",
+            })
+
+    return jsonify({
+        "query":                  q,
+        "umbral_actual":          RAG_UMBRAL,
+        "umbral_hibrido":         RAG_UMBRAL_HIBRIDO,
+        "total_chunks_indexados": len(CHUNKS_CONOCIMIENTO),
+        "resultados":             resultados,
+    }), 200
 
 @app.route("/clear-config-cache", methods=["POST"])
 def clear_config_cache():
