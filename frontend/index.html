@@ -197,6 +197,12 @@
     box-shadow: 0 1px 4px rgba(0,0,0,0.06);
   }
 
+  .msg.bot .bubble a {
+    color: var(--azul);
+    text-decoration: underline;
+    word-break: break-all;
+  }
+
   .msg.user .bubble {
     background: var(--azul); color: white;
     border-bottom-right-radius: 4px;
@@ -379,13 +385,13 @@
   // ── CONFIGURACIÓN ────────────────────────────────
   const API_URL = 'https://agentevirtual-gokulab.onrender.com';
   const USER_ID = 'web_' + Math.random().toString(36).substr(2, 8);
-  const TIMEOUT_MS = 30000; // 30 segundos máximo
+  const TIMEOUT_MS = 30000;
   let isSending = false;
 
   // Limpia URLs viejas cacheadas en el navegador
   try {
     localStorage.removeItem('gokulab_api_url');
-  } catch (e) { /* localStorage no disponible, ignorar */ }
+  } catch (e) { /* localStorage no disponible */ }
 
   // ── UTILIDADES ───────────────────────────────────
   function showToast(msg, isError = false) {
@@ -412,6 +418,22 @@
     }
   }
 
+  // Escapa HTML y convierte markdown ligero + links clickeables
+  function renderizarTextoBot(texto) {
+    return texto
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      // Negritas: *texto*
+      .replace(/\*(.+?)\*/g, '<strong>$1</strong>')
+      // Cursivas: _texto_
+      .replace(/_([^_\n]+)_/g, '<em>$1</em>')
+      // Links clickeables
+      .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>')
+      // Saltos de línea
+      .replace(/\n/g, '<br>');
+  }
+
   // ── RENDERIZADO DE MENSAJES ──────────────────────
   function appendMsg(role, text) {
     const msgs = document.getElementById('messages');
@@ -427,16 +449,9 @@
       iconDiv.innerHTML = `<img src="/logo.png" alt="GL" onerror="this.parentElement.innerHTML='<span class=&quot;bot-icon-fallback&quot;>GL</span>'"/>`;
 
       const bubble = document.createElement('div');
-        bubble.className = 'bubble';
-        // Detectar URLs y convertirlas en enlaces clickeables de forma segura
-        bubble.innerHTML = text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/\*(.+?)\*/g, '<strong>$1</strong>')
-        .replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#00AEEF; text-decoration:underline; word-break:break-all;">$1</a>')
-        .replace(/\n/g, '<br>');
-      
+      bubble.className = 'bubble';
+      bubble.innerHTML = renderizarTextoBot(text);
+
       row.appendChild(iconDiv);
       row.appendChild(bubble);
       wrap.appendChild(row);
@@ -499,7 +514,6 @@
     appendMsg('user', msg);
     showTyping();
 
-    // Timeout por si el servidor tarda demasiado (modelos de razonamiento)
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -547,7 +561,6 @@
     sendMessage(text);
   }
 
-  // Auto-focus al cargar
   window.addEventListener('DOMContentLoaded', () => {
     document.getElementById('msgInput').focus();
   });

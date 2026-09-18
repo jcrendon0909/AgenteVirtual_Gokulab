@@ -497,9 +497,8 @@ def construir_prompt_multiple(intenciones, todos_datos, config, sentimiento):
         f"2. Máximo 3 oraciones O 3 líneas de lista.\n"
         f"3. Sin viñetas de markdown. Usa '•' o saltos de línea si es lista.\n"
         f"4. Máximo 1 emoji por respuesta.\n"
-        f"5. Termina con UNA pregunta SOLO si no es despedida."
-        f"6. NUNCA pidas el número de WhatsApp. El sistema se encarga de eso cuando es necesario."
-    )
+        f"5. Termina con UNA pregunta SOLO si no es despedida.\n"
+        f"6. NUNCA pidas el número de WhatsApp, correo, o datos de contacto. El sistema lo solicita automáticamente cuando es necesario."    )
 
 def construir_prompt_rag(chunks_relevantes, config, sentimiento):
     academia = config.get("nombre_academia", "Gōku Lab")
