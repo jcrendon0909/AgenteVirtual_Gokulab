@@ -1,5 +1,7 @@
 # ============================================================
-# CHATBOT GŌKU LAB - v2.3 (Fix: campos tipo lista en cursos)
+# CHATBOT GŌKU LAB - v2.4
+# - Fix: flujo "sí" → clase demo con link
+# - RAG mejorado: usa palabras_clave y tema, umbral 0.15
 # ============================================================
 import os
 import re
@@ -64,12 +66,10 @@ GROQ_KEYS = [
 GROQ_KEYS = [k for k in GROQ_KEYS if k]
 logger.info(f"Groq conectado con {len(GROQ_KEYS)} key(s).")
 
-# Cache de clientes Groq
 _GROQ_CLIENTS = {}
 _GROQ_LOCK = Lock()
 
 def get_groq_client(key):
-    """Devuelve un cliente Groq cacheado."""
     with _GROQ_LOCK:
         if key not in _GROQ_CLIENTS:
             _GROQ_CLIENTS[key] = Groq(api_key=key)
@@ -92,7 +92,7 @@ analizador_sentimiento = SentimentIntensityAnalyzer()
 # CONSTANTES
 # ─────────────────────────────────────────────
 RAG_TOP_K            = 3
-RAG_UMBRAL           = 0.05
+RAG_UMBRAL           = 0.15    # ⬆️ Subido de 0.05 para ser más estricto
 UMBRAL_PALABRAS_CORTO = 3
 TIMEOUT_ESPERANDO_NUMERO = 3
 MAX_LEN_MENSAJE      = 1000
@@ -101,6 +101,13 @@ MODELOS_GROQ = [
     {"nombre": "openai/gpt-oss-120b", "max_tokens": 800, "es_razonamiento": True},
     {"nombre": "llama-3.1-8b-instant", "max_tokens": 400, "es_razonamiento": False},
 ]
+
+# Palabras que indican confirmación afirmativa corta
+PALABRAS_AFIRMATIVAS = {
+    "si", "sí", "yes", "claro", "ok", "okay", "dale", "va", "sale",
+    "por favor", "porfa", "adelante", "quiero", "sip", "simon", "sale pues",
+    "vamos", "hagamoslo", "hagámoslo", "va que va", "yes please"
+}
 
 # ─────────────────────────────────────────────
 # UTILIDADES GENERALES
@@ -139,15 +146,40 @@ def es_numero_valido(texto):
     solo_numeros = re.sub(r"[\s\-\(\)\+\.]", "", texto)
     return solo_numeros.isdigit() and len(solo_numeros) >= 8
 
+def es_afirmacion_corta(mensaje):
+    """Detecta si el mensaje es una confirmación corta tipo 'sí', 'ok', 'dale'."""
+    limpio = mensaje.strip().lower().rstrip("!.,?")
+    return limpio in PALABRAS_AFIRMATIVAS
+
 # ─────────────────────────────────────────────
-# RAG
+# RAG (MEJORADO: usa palabras_clave y tema)
 # ─────────────────────────────────────────────
 def cargar_chunks_conocimiento():
+    """Carga chunks desde Mongo incluyendo palabras_clave y tema en el índice."""
     if db is None:
         return []
     try:
-        docs = db["conocimiento"].find({}, {"_id": 0, "contenido": 1})
-        chunks = [d["contenido"].strip() for d in docs if d.get("contenido") and d["contenido"].strip()]
+        docs = db["conocimiento"].find(
+            {"publicable": {"$ne": False}},
+            {"_id": 0, "tema": 1, "palabras_clave": 1, "contenido": 1}
+        )
+        chunks = []
+        for d in docs:
+            contenido = (d.get("contenido") or "").strip()
+            if not contenido:
+                continue
+            tema = _a_texto(d.get("tema"))
+            kws = d.get("palabras_clave") or []
+            if isinstance(kws, str):
+                kws = [kws]
+            kws_texto = " ".join(_a_texto(k) for k in kws if k)
+            # Texto para indexar: palabras clave + tema + contenido
+            texto_indice = f"{kws_texto} {tema} {contenido}".strip()
+            chunks.append({
+                "contenido": contenido,
+                "tema": tema,
+                "texto_indice": texto_indice,
+            })
         logger.info(f"RAG: {len(chunks)} chunks cargados.")
         return chunks
     except Exception as e:
@@ -157,7 +189,7 @@ def cargar_chunks_conocimiento():
 def construir_indice_rag(chunks):
     if not chunks:
         return None, None
-    textos_limpios = [limpiar_texto(c) for c in chunks]
+    textos_limpios = [limpiar_texto(c["texto_indice"]) for c in chunks]
     vec = TfidfVectorizer()
     matriz = vec.fit_transform(textos_limpios)
     return vec, matriz
@@ -171,7 +203,7 @@ def buscar_chunks_relevantes(query, chunks, vec, matriz, k=RAG_TOP_K, umbral=RAG
     relevantes = []
     for i in indices_ordenados[:k]:
         if similitudes[i] >= umbral:
-            relevantes.append(chunks[i])
+            relevantes.append(chunks[i]["contenido"])
     return relevantes
 
 CHUNKS_CONOCIMIENTO = cargar_chunks_conocimiento()
@@ -307,9 +339,11 @@ def obtener_datos_por_intencion(intencion):
 
     elif intencion == "Consultar_Horarios":
         return {
-            "horarios_generales (Sujeto a disponibilidad)": config.get("horarios_generales"),
+            "horarios_generales": config.get("horarios_generales"),
+            "masterclass":        config.get("masterclass"),
             "config":             config_mini,
         }
+
     elif intencion == "Consultar_Certificacion":
         return {"certificacion": config.get("certificacion"), "config": config_mini}
 
@@ -442,24 +476,23 @@ INSTRUCCIONES = {
     "Consultar_Cursos": (
         "Menciona los cursos disponibles con nombre y descripción breve. "
         "Si son más de 3, menciona los más populares y pregunta cuál le interesa. "
-        "Sé conversacional, máximo 3 oraciones. Usa saltos de línea si listas cursos."
+        "Sé conversacional, máximo 3 oraciones."
     ),
     "Consultar_Costos": (
         "Si tienes el campo 'costos', da el rango exacto en UNA oración. "
         "Si NO tienes el campo 'costos', di: 'Los costos varían por programa, "
         "déjame conectarte con el equipo para darte el detalle exacto'. "
-        "NUNCA inventes precios. NO menciones WhatsApp ni correos."
+        "NUNCA inventes precios."
     ),
     "Consultar_Horarios": (
         "Da el horario general de atención que aparece en los datos (campo 'horarios_generales'). "
-        "Aclara que los horarios específicos de cada curso varían por ciclo, y que pueden "
-        "confirmarlo por WhatsApp o agendando una clase demo gratuita. "
-        "NO inventes horarios por curso. Máximo 3 oraciones."
+        "Aclara que los horarios específicos de cada curso varían por ciclo. "
+        "Invita a agendar la clase demo gratuita y comparte el link del campo 'masterclass'. "
+        "Máximo 3 oraciones."
     ),
     "Consultar_Ubicacion": (
         "Da la dirección completa en UNA oración, el link de Google Maps, "
-        "y las referencias en UNA oración adicional. "
-        "Ejemplo: 'Estamos en [dirección]. Aquí el mapa: [link]. Nos ubicas a un costado del Sodimac, arriba de Cinemex y Toks.'"
+        "y las referencias en UNA oración adicional."
     ),
     "Consultar_Modalidad": "Explica si las clases son presenciales, online o híbridas por curso. Máximo 2 oraciones.",
     "Consultar_Certificacion": (
@@ -467,9 +500,8 @@ INSTRUCCIONES = {
         "Si NO lo tienes, di: 'Déjame consultar con el equipo sobre los certificados'. NO inventes."
     ),
     "Consultar_ClaseDemo": (
-        "Explica que ofrecemos una clase demo gratuita de 90 minutos para conocer la metodología. "
-        "Comparte el link de agendamiento que aparece en los datos. "
-        "Si el usuario pide más detalles, invítalo a agendar por WhatsApp o por el link. "
+        "Explica que ofrecemos una clase demo gratuita de 90 minutos. "
+        "Comparte el link de agendamiento del campo 'masterclass'. "
         "NO inventes fechas ni horarios. Máximo 3 oraciones."
     ),
     "Consultar_FormasPago": "Menciona métodos de pago y opción de abonos. Máximo 2 oraciones.",
@@ -633,22 +665,18 @@ def marcar_mensaje_procesado(message_id, canal, numero):
 # UTILIDADES DE CURSOS (TOLERANTES A LISTAS)
 # ─────────────────────────────────────────────
 def _parsear_edad_min(edad_str):
-    """Extrae el número mínimo de edad de strings como '7-10 años' o 'Adultos'."""
     if not edad_str:
         return 999
     s = _a_texto(edad_str).lower()
     if "adulto" in s:
-        return 100  # siempre al final
+        return 100
     match = re.search(r'(\d+)', s)
     return int(match.group(1)) if match else 999
 
 def formatear_lista_cursos(cursos, max_cursos=30):
-    """Genera una respuesta agrupada por rango de edad, ordenada ascendentemente.
-    Tolerante a campos que pueden ser string, lista o None."""
     if not cursos:
         return None
 
-    # Agrupar por edad_dirigida (tolerante a listas)
     grupos = {}
     for c in cursos:
         nombre = _a_texto(c.get("nombreCurso"))
@@ -660,7 +688,6 @@ def formatear_lista_cursos(cursos, max_cursos=30):
     if not grupos:
         return None
 
-    # Ordenar grupos por edad mínima
     grupos_ordenados = sorted(grupos.items(), key=lambda x: _parsear_edad_min(x[0]))
 
     lineas = ["📚 *Estos son nuestros cursos disponibles:*", ""]
@@ -678,6 +705,43 @@ def formatear_lista_cursos(cursos, max_cursos=30):
 
     lineas.append("¿Sobre cuál te gustaría saber más? Te puedo dar el detalle de qué se aprende, horarios o costos 😊")
     return "\n".join(lineas)
+
+# ─────────────────────────────────────────────
+# RESPUESTA RÁPIDA PARA CLASE DEMO
+# ─────────────────────────────────────────────
+def respuesta_clase_demo(numero, canal):
+    """Construye la respuesta de clase demo usando el link del masterclass."""
+    datos = obtener_datos_por_intencion("Consultar_ClaseDemo")
+    masterclass = (datos.get("masterclass") or "").strip()
+
+    if not masterclass:
+        masterclass = "Ofrecemos una clase demo gratuita de 90 minutos para que conozcas nuestra metodología."
+
+    respuesta = f"¡Perfecto! 😊 {masterclass}"
+
+    # Guardar en historial
+    if coleccion is not None:
+        try:
+            coleccion.insert_one({
+                "numero":      numero,
+                "mensaje":     "[aceptó demo]",
+                "intencion":   "Consultar_ClaseDemo",
+                "confianza":   1.0,
+                "sentimiento": "positivo",
+                "canal":       canal,
+                "respuesta":   respuesta,
+                "timestamp":   datetime.now(),
+            })
+        except Exception as e:
+            logger.error(f"Error guardando demo: {e}")
+
+    return {
+        "respuesta": formatear_respuesta(respuesta, canal),
+        "intencion": "Consultar_ClaseDemo",
+        "confianza": "100%",
+        "sentimiento": "positivo",
+        "canal": canal,
+    }
 
 # ─────────────────────────────────────────────
 # LÓGICA CENTRAL
@@ -959,6 +1023,7 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
         todos_datos.update(obtener_datos_por_intencion(i))
     config = todos_datos.get("config") or {}
 
+    # Historial reciente
     historial_groq = []
     if coleccion is not None:
         hist_db = list(
@@ -968,6 +1033,24 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
         for h in reversed(hist_db):
             historial_groq.append({"role": "user",      "content": h["mensaje"]})
             historial_groq.append({"role": "assistant", "content": h["respuesta"]})
+
+    # ── NUEVO: Detección de "sí" tras oferta de demo ──
+    # Si el usuario responde corto y afirmativo, y el último mensaje del bot
+    # ofreció agendar la clase demo, saltamos directamente a la respuesta de demo.
+    if es_afirmacion_corta(mensaje) and historial_groq:
+        ultimo_bot = ""
+        for m in reversed(historial_groq):
+            if m["role"] == "assistant":
+                ultimo_bot = m["content"].lower()
+                break
+
+        gatillos_demo = [
+            "agendar", "agenda", "demo", "clase muestra",
+            "master class", "masterclass", "reservar"
+        ]
+        if any(kw in ultimo_bot for kw in gatillos_demo):
+            logger.info(f"[Flujo] '{mensaje}' → redirigido a ClaseDemo")
+            return respuesta_clase_demo(numero, canal)
 
     if es_corto is None:
         es_corto = len(mensaje.strip().split()) <= UMBRAL_PALABRAS_CORTO
@@ -979,6 +1062,7 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
         prompt = construir_prompt_continuacion(config, "neutral")
     elif usar_rag:
         chunks_relevantes = buscar_chunks_relevantes(mensaje, CHUNKS_CONOCIMIENTO, VEC_RAG, MATRIZ_RAG)
+        logger.info(f"[RAG] query='{mensaje[:50]}' chunks={len(chunks_relevantes)}")
         if chunks_relevantes:
             prompt = construir_prompt_rag(chunks_relevantes, config, "neutral")
         else:
@@ -1105,6 +1189,7 @@ def health():
         "mongo_ok":        db is not None,
         "groq_ok":         len(GROQ_KEYS) > 0,
         "rag_chunks":      len(CHUNKS_CONOCIMIENTO),
+        "rag_umbral":      RAG_UMBRAL,
         "telegram_ok":     bool(TELEGRAM_TOKEN and TELEGRAM_CHAT_ID),
         "admin_protegido": bool(ADMIN_TOKEN),
         "firma_meta_ok":   bool(META_APP_SECRET),
