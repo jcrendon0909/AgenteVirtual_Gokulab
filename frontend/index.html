@@ -418,20 +418,32 @@
     }
   }
 
-  // Escapa HTML y convierte markdown ligero + links clickeables
+  // Escapa HTML, convierte markdown ligero y detecta URLs correctamente
+  // (excluye puntuación final para no romper los enlaces)
   function renderizarTextoBot(texto) {
-    return texto
+    // 1. Escapar HTML peligroso
+    let out = texto
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      // Negritas: *texto*
-      .replace(/\*(.+?)\*/g, '<strong>$1</strong>')
-      // Cursivas: _texto_
-      .replace(/_([^_\n]+)_/g, '<em>$1</em>')
-      // Links clickeables
-      .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>')
-      // Saltos de línea
-      .replace(/\n/g, '<br>');
+      .replace(/>/g, '&gt;');
+
+    // 2. Negritas *texto*
+    out = out.replace(/\*(.+?)\*/g, '<strong>$1</strong>');
+
+    // 3. Cursivas _texto_
+    out = out.replace(/_([^_\n]+)_/g, '<em>$1</em>');
+
+    // 4. URLs: capturar la URL sin puntuación final
+    //    El punto/coma/etc. queda FUERA del <a>
+    out = out.replace(
+      /(https?:\/\/[^\s<]+?)([.,;:!?)\]]*)(?=\s|<|$)/g,
+      (match, url, punct) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>${punct}`
+    );
+
+    // 5. Saltos de línea
+    out = out.replace(/\n/g, '<br>');
+
+    return out;
   }
 
   // ── RENDERIZADO DE MENSAJES ──────────────────────
