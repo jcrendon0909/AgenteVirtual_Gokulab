@@ -1,9 +1,10 @@
 # ============================================================
-# CHATBOT GŌKU LAB - v2.5
+# CHATBOT GŌKU LAB - v2.6
+# - Fix: escape del bucle esperando_numero (limpieza de estado)
+# - Fix: criterio de escape más permisivo (3+ palabras)
 # - Modo híbrido: intención + RAG combinados
 # - Endpoint /test-rag para diagnóstico
 # - RAG mejorado con palabras_clave y tema, umbral 0.15
-# - Fix: flujo "sí" → clase demo con link
 # ============================================================
 import os
 import re
@@ -94,9 +95,9 @@ analizador_sentimiento = SentimentIntensityAnalyzer()
 # CONSTANTES
 # ─────────────────────────────────────────────
 RAG_TOP_K             = 3
-RAG_UMBRAL            = 0.15      # umbral general para RAG puro (intención Desconocido)
-RAG_UMBRAL_HIBRIDO    = 0.20      # umbral más estricto para el modo híbrido
-RAG_TOP_K_HIBRIDO     = 2         # solo 2 chunks para no saturar el prompt
+RAG_UMBRAL            = 0.15
+RAG_UMBRAL_HIBRIDO    = 0.20
+RAG_TOP_K_HIBRIDO     = 2
 UMBRAL_PALABRAS_CORTO = 3
 TIMEOUT_ESPERANDO_NUMERO = 3
 MAX_LEN_MENSAJE       = 1000
@@ -538,7 +539,6 @@ def construir_prompt_multiple(intenciones, todos_datos, config, sentimiento):
     )
 
 def construir_prompt_hibrido(intenciones, todos_datos, config, chunks_relevantes, sentimiento):
-    """Prompt que combina instrucciones de intención + datos estructurados + chunks de conocimiento."""
     academia = config.get("nombre_academia", "Gōku Lab")
 
     instrucciones_combinadas = []
@@ -740,7 +740,6 @@ def formatear_lista_cursos(cursos, max_cursos=30):
 # RESPUESTA RÁPIDA PARA CLASE DEMO
 # ─────────────────────────────────────────────
 def respuesta_clase_demo(numero, canal):
-    """Construye la respuesta de clase demo usando el link del masterclass."""
     datos = obtener_datos_por_intencion("Consultar_ClaseDemo")
     masterclass = (datos.get("masterclass") or "").strip()
 
@@ -804,6 +803,7 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
         if es_numero_valido(mensaje):
             return _capturar_numero(numero, mensaje, estado_doc, canal)
 
+        # Timeout: si ya esperamos N turnos, salir del estado
         if turnos_esperando >= TIMEOUT_ESPERANDO_NUMERO:
             if db is not None:
                 db["estados"].delete_one({"numero": numero})
@@ -812,26 +812,32 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
             intenciones_escape, confianzas_escape = predecir_intent(mensaje)
             max_conf = max(confianzas_escape) if confianzas_escape else 0
 
-            if max_conf >= 0.5 and intenciones_escape != ["Desconocido"]:
+            # ─── FIX: escape más permisivo ───
+            # Escapa del bucle si:
+            # a) El clasificador detecta intención con confianza >= 0.4, O
+            # b) El mensaje tiene 3+ palabras (indicio de pregunta real)
+            es_pregunta_real = (
+                (max_conf >= 0.4 and intenciones_escape != ["Desconocido"])
+                or len(mensaje.strip().split()) >= 3
+            )
+
+            if es_pregunta_real:
+                # Responder la pregunta y SALIR del estado
                 respuesta_pregunta = _generar_respuesta_normal(
                     numero, mensaje, intenciones_escape, canal, es_corto=False
                 )
                 if db is not None:
-                    db["estados"].update_one(
-                        {"numero": numero},
-                        {"$inc": {"turnos_esperando": 1}},
-                    )
+                    db["estados"].delete_one({"numero": numero})
+                logger.info(f"[Escape esperando_numero] {numero} → respondiendo '{mensaje[:40]}'")
                 return {
-                    "respuesta": formatear_respuesta(
-                        f"{respuesta_pregunta['respuesta']}\n\nPor cierto, cuando quieras, compárteme tu WhatsApp para darte info personalizada 😊",
-                        canal,
-                    ),
+                    "respuesta": respuesta_pregunta["respuesta"],
                     "intencion": respuesta_pregunta["intencion"],
                     "confianza": respuesta_pregunta["confianza"],
                     "sentimiento": respuesta_pregunta["sentimiento"],
                     "canal": canal,
                 }
             else:
+                # Solo pedir número nuevamente
                 if db is not None:
                     db["estados"].update_one(
                         {"numero": numero},
@@ -1017,7 +1023,7 @@ def _flujo_requiere_humano(numero, mensaje, intenciones, confianza, sentimiento,
 def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None):
     """Genera respuesta usando el flujo normal (sin captura de número)."""
 
-    # ── Respuesta directa para Consultar_Cursos (lista completa desde Mongo) ──
+    # ── Respuesta directa para Consultar_Cursos ──
     if intenciones == ["Consultar_Cursos"]:
         datos_cursos = obtener_datos_por_intencion("Consultar_Cursos")
         lista_directa = formatear_lista_cursos(datos_cursos.get("cursos", []))
@@ -1052,7 +1058,7 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
         todos_datos.update(obtener_datos_por_intencion(i))
     config = todos_datos.get("config") or {}
 
-    # ─── NUEVO: Siempre buscar chunks relevantes (modo híbrido) ───
+    # Modo híbrido: siempre buscar chunks relevantes
     chunks_relevantes_hibrido = buscar_chunks_relevantes(
         mensaje, CHUNKS_CONOCIMIENTO, VEC_RAG, MATRIZ_RAG,
         k=RAG_TOP_K_HIBRIDO, umbral=RAG_UMBRAL_HIBRIDO
@@ -1069,7 +1075,7 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
             historial_groq.append({"role": "user",      "content": h["mensaje"]})
             historial_groq.append({"role": "assistant", "content": h["respuesta"]})
 
-    # ── Detección de "sí" tras oferta de demo ──
+    # Detección de "sí" tras oferta de demo
     if es_afirmacion_corta(mensaje) and historial_groq:
         ultimo_bot = ""
         for m in reversed(historial_groq):
@@ -1092,19 +1098,16 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
     if usa_contexto_corto:
         prompt = construir_prompt_continuacion(config, "neutral")
     elif usar_rag:
-        # Intención desconocida → RAG puro
         if chunks_relevantes_hibrido:
             prompt = construir_prompt_rag(chunks_relevantes_hibrido, config, "neutral")
         else:
             prompt = construir_prompt_sin_info(config, "neutral")
     elif chunks_relevantes_hibrido:
-        # NUEVO: Intención conocida + chunks relevantes → modo híbrido
         logger.info(f"[Híbrido] intenciones={intenciones} chunks={len(chunks_relevantes_hibrido)}")
         prompt = construir_prompt_hibrido(
             intenciones, todos_datos, config, chunks_relevantes_hibrido, "neutral"
         )
     else:
-        # Intención conocida sin chunks relevantes → modo normal
         prompt = construir_prompt_multiple(intenciones, todos_datos, config, "neutral")
 
     respuesta = llamar_groq([
@@ -1221,17 +1224,18 @@ def retrain_rag():
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({
-        "status":          "ok",
-        "modelo_cargado":  mejor_modelo is not None,
-        "mongo_ok":        db is not None,
-        "groq_ok":         len(GROQ_KEYS) > 0,
-        "rag_chunks":      len(CHUNKS_CONOCIMIENTO),
-        "rag_umbral":      RAG_UMBRAL,
-        "rag_umbral_hibrido": RAG_UMBRAL_HIBRIDO,
-        "telegram_ok":     bool(TELEGRAM_TOKEN and TELEGRAM_CHAT_ID),
-        "admin_protegido": bool(ADMIN_TOKEN),
-        "firma_meta_ok":   bool(META_APP_SECRET),
-        "timestamp":       datetime.now().isoformat(),
+        "status":              "ok",
+        "modelo_cargado":      mejor_modelo is not None,
+        "mongo_ok":            db is not None,
+        "groq_ok":             len(GROQ_KEYS) > 0,
+        "rag_chunks":          len(CHUNKS_CONOCIMIENTO),
+        "rag_umbral":          RAG_UMBRAL,
+        "rag_umbral_hibrido":  RAG_UMBRAL_HIBRIDO,
+        "telegram_ok":         bool(TELEGRAM_TOKEN and TELEGRAM_CHAT_ID),
+        "admin_protegido":     bool(ADMIN_TOKEN),
+        "firma_meta_ok":       bool(META_APP_SECRET),
+        "version":             "v2.6",
+        "timestamp":           datetime.now().isoformat(),
     }), 200
 
 @app.route("/api/facebook-feed")
@@ -1423,7 +1427,6 @@ def list_models():
 
 @app.route("/test-rag", methods=["GET"])
 def test_rag():
-    """Diagnóstico: ver qué chunks matchean una consulta."""
     if not verificar_admin():
         return jsonify({"error": "no autorizado"}), 401
     q = request.args.get("q", "").strip()
