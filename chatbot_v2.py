@@ -1,5 +1,5 @@
 # ============================================================
-# CHATBOT GŌKU LAB - v2.1 (Optimizado)
+# CHATBOT GŌKU LAB - v2.3 (Fix: campos tipo lista en cursos)
 # ============================================================
 import os
 import re
@@ -11,7 +11,6 @@ import unicodedata
 import string
 import logging
 import traceback
-from functools import lru_cache
 from datetime import datetime
 from threading import Lock
 
@@ -65,7 +64,7 @@ GROQ_KEYS = [
 GROQ_KEYS = [k for k in GROQ_KEYS if k]
 logger.info(f"Groq conectado con {len(GROQ_KEYS)} key(s).")
 
-# Cache de clientes Groq (evita recrear el cliente en cada llamada)
+# Cache de clientes Groq
 _GROQ_CLIENTS = {}
 _GROQ_LOCK = Lock()
 
@@ -80,29 +79,39 @@ def get_groq_client(key):
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# ─── Admin token (para endpoints protegidos) ─
+# ─── Admin token ────────────────────────────
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
 
-# ─── Meta secrets (para validar firmas) ─────
+# ─── Meta secrets ───────────────────────────
 META_APP_SECRET = os.getenv("META_APP_SECRET", "") or os.getenv("WA_APP_SECRET", "")
 
 # ─── Analizador de sentimiento ──────────────
 analizador_sentimiento = SentimentIntensityAnalyzer()
 
 # ─────────────────────────────────────────────
-# CONSTANTES AJUSTABLES
+# CONSTANTES
 # ─────────────────────────────────────────────
 RAG_TOP_K            = 3
 RAG_UMBRAL           = 0.05
 UMBRAL_PALABRAS_CORTO = 3
-TIMEOUT_ESPERANDO_NUMERO = 3   # turnos máximos esperando número
-MAX_LEN_MENSAJE      = 1000    # truncar mensajes largos
+TIMEOUT_ESPERANDO_NUMERO = 3
+MAX_LEN_MENSAJE      = 1000
 
-# Configuración de modelos Groq
 MODELOS_GROQ = [
     {"nombre": "openai/gpt-oss-120b", "max_tokens": 800, "es_razonamiento": True},
     {"nombre": "llama-3.1-8b-instant", "max_tokens": 400, "es_razonamiento": False},
 ]
+
+# ─────────────────────────────────────────────
+# UTILIDADES GENERALES
+# ─────────────────────────────────────────────
+def _a_texto(valor):
+    """Convierte cualquier valor (str, list, None, número) a string limpio."""
+    if valor is None:
+        return ""
+    if isinstance(valor, list):
+        return ", ".join(str(v).strip() for v in valor if v is not None and str(v).strip())
+    return str(valor).strip()
 
 # ─────────────────────────────────────────────
 # LIMPIEZA DE TEXTO
@@ -123,12 +132,10 @@ def truncar_mensaje(mensaje, limite=MAX_LEN_MENSAJE):
     return mensaje
 
 def dividir_multiples_preguntas(mensaje):
-    """Divide un mensaje con múltiples preguntas en fragmentos."""
     fragmentos = re.split(r'[¿?¡!]+|\s+(?:y|además|también)\s+', mensaje)
     return [f.strip() for f in fragmentos if len(f.strip()) > 3][:3]
 
 def es_numero_valido(texto):
-    """Detecta si el texto parece un número de teléfono."""
     solo_numeros = re.sub(r"[\s\-\(\)\+\.]", "", texto)
     return solo_numeros.isdigit() and len(solo_numeros) >= 8
 
@@ -222,7 +229,6 @@ except Exception as e:
     mejor_modelo, vectorizer = None, None
 
 def predecir_intent(texto, umbral=0.5, umbral_secundario=0.35):
-    """Devuelve lista de intenciones detectadas."""
     if mejor_modelo is None or vectorizer is None:
         return ["Desconocido"], [0.0]
 
@@ -257,21 +263,19 @@ def predecir_intent(texto, umbral=0.5, umbral_secundario=0.35):
     return intenciones, confianzas
 
 # ─────────────────────────────────────────────
-# DATOS POR INTENCIÓN
+# DATOS POR INTENCIÓN (con cache TTL)
 # ─────────────────────────────────────────────
-# Cache con TTL para datos_generales (se refresca cada 60s)
 _config_cache = {"data": None, "timestamp": 0}
 _config_cache_lock = Lock()
-CONFIG_CACHE_TTL = 60  # segundos
+CONFIG_CACHE_TTL = 60
 
 def _obtener_config_general(force_refresh=False):
-    """Devuelve config general con cache TTL de 60 segundos."""
     if db is None:
         return {}
     ahora = time.time()
     with _config_cache_lock:
-        if (force_refresh 
-            or _config_cache["data"] is None 
+        if (force_refresh
+            or _config_cache["data"] is None
             or ahora - _config_cache["timestamp"] > CONFIG_CACHE_TTL):
             _config_cache["data"] = db["datos_generales"].find_one({}, {"_id": 0}) or {}
             _config_cache["timestamp"] = ahora
@@ -419,7 +423,6 @@ TONO_MAP = {
     "neutral":  "Responde de forma amable y profesional.",
 }
 
-# Ejemplos del estilo esperado (few-shot)
 EJEMPLOS_ESTILO = """
 Ejemplos de respuestas ideales:
 - Usuario: "Hola" → "¡Hola! 👋 Soy Gōku, tu asistente de Gōku Lab. ¿En qué te puedo ayudar hoy?"
@@ -456,7 +459,6 @@ INSTRUCCIONES = {
         "y las referencias en UNA oración adicional. "
         "Ejemplo: 'Estamos en [dirección]. Aquí el mapa: [link]. Nos ubicas a un costado del Sodimac, arriba de Cinemex y Toks.'"
     ),
-
     "Consultar_Modalidad": "Explica si las clases son presenciales, online o híbridas por curso. Máximo 2 oraciones.",
     "Consultar_Certificacion": (
         "Si tienes el campo 'certificacion', explícalo en 2 oraciones. "
@@ -501,6 +503,7 @@ def construir_prompt_multiple(intenciones, todos_datos, config, sentimiento):
         f"6. NUNCA pidas el número de WhatsApp, correo, o datos de contacto. El sistema lo solicita automáticamente cuando es necesario.\n"
         f"7. Cuando incluyas una URL, colócala al FINAL de la oración y NO pongas punto ni coma después."
     )
+
 def construir_prompt_rag(chunks_relevantes, config, sentimiento):
     academia = config.get("nombre_academia", "Gōku Lab")
     contexto = "\n".join(f"- {c}" for c in chunks_relevantes)
@@ -537,18 +540,13 @@ def construir_prompt_continuacion(config, sentimiento):
 # CAPA DE PRESENTACIÓN POR CANAL
 # ─────────────────────────────────────────────
 def formatear_para_whatsapp(respuesta):
-    """Convierte markdown genérico a formato WhatsApp."""
     texto = respuesta
-    # Markdown bold → WhatsApp bold
     texto = re.sub(r"\*\*(.+?)\*\*", r"*\1*", texto)
-    # Markdown italic
     texto = re.sub(r"__(.+?)__", r"_\1_", texto)
-    # Markdown bullet → bullet unicode
     texto = re.sub(r"^\s*[-*]\s+", "• ", texto, flags=re.MULTILINE)
     return texto
 
 def formatear_para_web(respuesta):
-    """La web usa textContent, así que solo limpiamos markdown."""
     texto = respuesta
     texto = re.sub(r"\*\*(.+?)\*\*", r"\1", texto)
     texto = re.sub(r"__(.+?)__", r"\1", texto)
@@ -556,7 +554,6 @@ def formatear_para_web(respuesta):
     return texto
 
 def formatear_para_telegram(respuesta):
-    """Telegram soporta markdown similar."""
     return respuesta
 
 def formatear_respuesta(respuesta, canal):
@@ -577,7 +574,6 @@ RESPUESTA_FALLBACK = (
 )
 
 def llamar_groq(messages):
-    """Llama a Groq con fallback entre keys y modelos."""
     for key_idx, key in enumerate(GROQ_KEYS, 1):
         for modelo_cfg in MODELOS_GROQ:
             modelo = modelo_cfg["nombre"]
@@ -599,7 +595,7 @@ def llamar_groq(messages):
                     logger.info(f"[Groq] key {key_idx} modelo {modelo} OK")
                     return contenido.strip()
                 else:
-                    logger.warning(f"[Groq] key {key_idx} modelo {modelo} vacío, intentando siguiente")
+                    logger.warning(f"[Groq] key {key_idx} modelo {modelo} vacío")
                     continue
             except Exception as e:
                 logger.warning(f"[Groq] key {key_idx} modelo {modelo} FALLÓ: {type(e).__name__}: {e}")
@@ -628,18 +624,65 @@ def marcar_mensaje_procesado(message_id, canal, numero):
             "numero": numero,
             "timestamp": datetime.now(),
         })
-        # TTL index (opcional): la colección se auto-limpia a los 7 días
     except Exception as e:
         logger.error(f"Error marcando mensaje: {e}")
+
+# ─────────────────────────────────────────────
+# UTILIDADES DE CURSOS (TOLERANTES A LISTAS)
+# ─────────────────────────────────────────────
+def _parsear_edad_min(edad_str):
+    """Extrae el número mínimo de edad de strings como '7-10 años' o 'Adultos'."""
+    if not edad_str:
+        return 999
+    s = _a_texto(edad_str).lower()
+    if "adulto" in s:
+        return 100  # siempre al final
+    match = re.search(r'(\d+)', s)
+    return int(match.group(1)) if match else 999
+
+def formatear_lista_cursos(cursos, max_cursos=30):
+    """Genera una respuesta agrupada por rango de edad, ordenada ascendentemente.
+    Tolerante a campos que pueden ser string, lista o None."""
+    if not cursos:
+        return None
+
+    # Agrupar por edad_dirigida (tolerante a listas)
+    grupos = {}
+    for c in cursos:
+        nombre = _a_texto(c.get("nombreCurso"))
+        edad = _a_texto(c.get("edad_dirigida")) or "Sin categoría"
+        if not nombre:
+            continue
+        grupos.setdefault(edad, []).append(nombre)
+
+    if not grupos:
+        return None
+
+    # Ordenar grupos por edad mínima
+    grupos_ordenados = sorted(grupos.items(), key=lambda x: _parsear_edad_min(x[0]))
+
+    lineas = ["📚 *Estos son nuestros cursos disponibles:*", ""]
+    total = 0
+    for edad, nombres in grupos_ordenados:
+        lineas.append(f"*{edad}*")
+        for n in nombres:
+            if total >= max_cursos:
+                break
+            lineas.append(f"• {n}")
+            total += 1
+        lineas.append("")
+        if total >= max_cursos:
+            break
+
+    lineas.append("¿Sobre cuál te gustaría saber más? Te puedo dar el detalle de qué se aprende, horarios o costos 😊")
+    return "\n".join(lineas)
 
 # ─────────────────────────────────────────────
 # LÓGICA CENTRAL
 # ─────────────────────────────────────────────
 def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
-    """Procesa un mensaje y devuelve dict con respuesta y metadatos."""
     inicio = time.time()
 
-    # 0. Truncar mensajes largos
     mensaje = truncar_mensaje(mensaje, MAX_LEN_MENSAJE)
 
     # 1. Validación
@@ -653,7 +696,7 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
             "canal": canal,
         }
 
-    # 2. Estado actual del usuario
+    # 2. Estado actual
     estado_doc = None
     if db is not None:
         estado_doc = db["estados"].find_one({"numero": numero})
@@ -663,28 +706,21 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
 
     # 3. Si está esperando número
     if esperando_numero:
-        # 3a. ¿Dio un número válido?
         if es_numero_valido(mensaje):
             return _capturar_numero(numero, mensaje, estado_doc, canal)
 
-        # 3b. ¿Timeout? (más de N turnos esperando)
         if turnos_esperando >= TIMEOUT_ESPERANDO_NUMERO:
-            # Salir del estado y procesar normal
             if db is not None:
                 db["estados"].delete_one({"numero": numero})
             logger.info(f"Timeout de esperando_numero para {numero}")
-            # Continuar al flujo normal
         else:
-            # 3c. ¿Hizo una pregunta clara? → responder y volver a pedir
             intenciones_escape, confianzas_escape = predecir_intent(mensaje)
             max_conf = max(confianzas_escape) if confianzas_escape else 0
 
             if max_conf >= 0.5 and intenciones_escape != ["Desconocido"]:
-                # Responder la pregunta
                 respuesta_pregunta = _generar_respuesta_normal(
                     numero, mensaje, intenciones_escape, canal, es_corto=False
                 )
-                # Actualizar turnos y mantener estado
                 if db is not None:
                     db["estados"].update_one(
                         {"numero": numero},
@@ -701,7 +737,6 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
                     "canal": canal,
                 }
             else:
-                # Solo pedir número nuevamente
                 if db is not None:
                     db["estados"].update_one(
                         {"numero": numero},
@@ -734,7 +769,7 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
     confianza = confianzas[0] if confianzas else 0.0
     requiere_humano = any(i in INTENCIONES_REQUIEREN_HUMANO for i in intenciones)
 
-    # 6. Registro de candidatos (para revisión manual)
+    # 6. Candidatos para revisión
     if confianza < 0.5 and coleccion is not None:
         try:
             db["intenciones_candidatas"].insert_one({
@@ -760,7 +795,7 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
     resultado["sentimiento"] = sentimiento
     resultado["score_sentimiento"] = score_sentimiento
 
-    # 9. Guardar métricas
+    # 9. Métricas
     latencia_ms = int((time.time() - inicio) * 1000)
     if coleccion is not None:
         try:
@@ -783,12 +818,10 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
     return resultado
 
 def _capturar_numero(numero, mensaje, estado_doc, canal):
-    """Captura el número y notifica al equipo."""
     numero_dado = mensaje
     intencion_pendiente = estado_doc.get("intencion_pendiente")
     mensaje_original = estado_doc.get("mensaje_original", "")
 
-    # Historial reciente
     contexto = ""
     if coleccion is not None:
         hist = list(
@@ -832,16 +865,13 @@ def _capturar_numero(numero, mensaje, estado_doc, canal):
     }
 
 def _flujo_requiere_humano(numero, mensaje, intenciones, confianza, sentimiento, canal):
-    """Maneja intenciones que requieren captura de número."""
     intencion_lead = next(i for i in intenciones if i in INTENCIONES_REQUIEREN_HUMANO)
 
-    # ¿Ya dio número antes?
     ya_dio = False
     if coleccion is not None:
         if coleccion.find_one({"numero": numero, "intencion": "captura_numero"}):
             ya_dio = True
 
-    # Datos
     todos_datos = {}
     for i in intenciones:
         todos_datos.update(obtener_datos_por_intencion(i))
@@ -860,7 +890,6 @@ def _flujo_requiere_humano(numero, mensaje, intenciones, confianza, sentimiento,
             "canal": canal,
         }
 
-    # Registrar estado esperando número
     if db is not None:
         db["estados"].replace_one(
             {"numero": numero},
@@ -874,7 +903,6 @@ def _flujo_requiere_humano(numero, mensaje, intenciones, confianza, sentimiento,
             upsert=True,
         )
 
-    # Respuesta parcial + pedir número
     respuesta_parcial = llamar_groq([
         {"role": "system", "content": construir_prompt_multiple(intenciones, todos_datos, config, sentimiento)},
         {"role": "user",   "content": mensaje},
@@ -891,41 +919,14 @@ def _flujo_requiere_humano(numero, mensaje, intenciones, confianza, sentimiento,
         "canal": canal,
     }
 
-def formatear_lista_cursos(cursos, max_cursos=25):
-    """Genera una respuesta con la lista completa de cursos desde Mongo."""
-    if not cursos:
-        return None
-
-    lineas = ["📚 *Estos son nuestros cursos disponibles:*", ""]
-    for c in cursos[:max_cursos]:
-        nombre = (c.get("nombreCurso") or "").strip()
-        edad = (c.get("edad_dirigida") or "").strip()
-        modalidad = (c.get("modalidad") or "").strip()
-        if not nombre:
-            continue
-        extras = []
-        if edad:
-            extras.append(edad)
-        if modalidad and modalidad.lower() != "presencial":
-            extras.append(modalidad)
-        if extras:
-            lineas.append(f"• {nombre} — {', '.join(extras)}")
-        else:
-            lineas.append(f"• {nombre}")
-
-    lineas.append("")
-    lineas.append("¿Sobre cuál te gustaría saber más? Puedo darte horarios, costos o duración 😊")
-    return "\n".join(lineas)
-
 def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None):
     """Genera respuesta usando el flujo normal (sin captura de número)."""
-    usar_rag = intenciones == ["Desconocido"]
-    # ── Respuesta directa para Consultar_Cursos (evita que Groq resuma) ──
+
+    # ── Respuesta directa para Consultar_Cursos (lista completa desde Mongo) ──
     if intenciones == ["Consultar_Cursos"]:
         datos_cursos = obtener_datos_por_intencion("Consultar_Cursos")
         lista_directa = formatear_lista_cursos(datos_cursos.get("cursos", []))
         if lista_directa:
-            # Guardar en historial como cualquier otra respuesta
             if coleccion is not None:
                 try:
                     coleccion.insert_one({
@@ -947,12 +948,15 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
                 "sentimiento": "neutral",
                 "canal": canal,
             }
+
+    # ── Flujo normal con Groq ──
+    usar_rag = intenciones == ["Desconocido"]
+
     todos_datos = {}
     for i in intenciones:
         todos_datos.update(obtener_datos_por_intencion(i))
     config = todos_datos.get("config") or {}
 
-    # Historial reciente
     historial_groq = []
     if coleccion is not None:
         hist_db = list(
@@ -986,7 +990,6 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
         {"role": "user",   "content": mensaje},
     ])
 
-    # Guardar en conversaciones
     if coleccion is not None:
         try:
             coleccion.insert_one({
@@ -1016,9 +1019,8 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
 # VERIFICACIÓN DE FIRMA META
 # ─────────────────────────────────────────────
 def verificar_firma_meta(req, app_secret):
-    """Verifica X-Hub-Signature-256 si el secret está configurado."""
     if not app_secret:
-        return True  # Si no hay secret, no podemos verificar (modo dev)
+        return True
 
     firma = req.headers.get("X-Hub-Signature-256", "")
     if not firma.startswith("sha256="):
@@ -1040,7 +1042,6 @@ app = Flask(__name__)
 CORS(app)
 
 def verificar_admin():
-    """Comprueba el token admin en headers."""
     if not ADMIN_TOKEN:
         return False
     return request.headers.get("X-Admin-Token") == ADMIN_TOKEN
@@ -1068,7 +1069,6 @@ def chat():
 
 @app.route("/retrain", methods=["POST"])
 def retrain():
-    """Reentrena el clasificador. PROTEGIDO con X-Admin-Token."""
     if not verificar_admin():
         return jsonify({"error": "no autorizado"}), 401
     global mejor_modelo, vectorizer
@@ -1082,7 +1082,6 @@ def retrain():
 
 @app.route("/retrain-rag", methods=["POST"])
 def retrain_rag():
-    """Reconstruye el índice RAG. PROTEGIDO con X-Admin-Token."""
     if not verificar_admin():
         return jsonify({"error": "no autorizado"}), 401
     global CHUNKS_CONOCIMIENTO, VEC_RAG, MATRIZ_RAG
@@ -1129,7 +1128,6 @@ def facebook_feed():
 # WEBHOOKS
 # ─────────────────────────────────────────────
 
-# ---------- TELEGRAM ----------
 @app.route("/webhook/telegram", methods=["POST"])
 def telegram_webhook():
     try:
@@ -1182,7 +1180,6 @@ def whatsapp_webhook():
             return challenge, 200
         return "Verification failed", 403
 
-    # Verificar firma
     if not verificar_firma_meta(request, WA_APP_SECRET):
         logger.warning("Firma WhatsApp inválida")
         return "Invalid signature", 403
@@ -1200,14 +1197,12 @@ def whatsapp_webhook():
             from_number = message["from"]
             msg_id = message.get("id", "")
 
-            # Idempotencia
             if msg_id and mensaje_ya_procesado(f"wa_{msg_id}"):
                 logger.info(f"Mensaje {msg_id} duplicado, ignorando.")
                 return "OK", 200
             if msg_id:
                 marcar_mensaje_procesado(f"wa_{msg_id}", "whatsapp", from_number)
 
-            # Solo procesar mensajes de texto por ahora
             if message.get("type") != "text":
                 logger.info(f"Mensaje no-texto ({message.get('type')}), ignorando.")
                 return "OK", 200
@@ -1234,7 +1229,6 @@ def meta_webhook():
             return challenge, 200
         return "Verification failed", 403
 
-    # Verificar firma
     if not verificar_firma_meta(request, META_APP_SECRET):
         logger.warning("Firma Meta inválida")
         return "Invalid signature", 403
@@ -1304,7 +1298,6 @@ def list_models():
 
 @app.route("/clear-config-cache", methods=["POST"])
 def clear_config_cache():
-    """Fuerza la recarga de datos_generales. PROTEGIDO con X-Admin-Token."""
     if not verificar_admin():
         return jsonify({"error": "no autorizado"}), 401
     global _config_cache
