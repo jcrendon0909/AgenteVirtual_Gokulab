@@ -1,10 +1,7 @@
 # ============================================================
-# CHATBOT GŌKU LAB - v2.6
-# - Fix: escape del bucle esperando_numero (limpieza de estado)
-# - Fix: criterio de escape más permisivo (3+ palabras)
-# - Modo híbrido: intención + RAG combinados
-# - Endpoint /test-rag para diagnóstico
-# - RAG mejorado con palabras_clave y tema, umbral 0.15
+# CHATBOT GŌKU LAB - v2.7
+# - Keyword override: palabras clave que fuerzan RAG
+# - Fix: "cursos vacacionales" y "metodología" ahora caen al RAG
 # ============================================================
 import os
 import re
@@ -63,9 +60,7 @@ except Exception as e:
     coleccion = None
 
 # ─── Groq keys ──────────────────────────────
-GROQ_KEYS = [
-    os.getenv(f"GROQ_API_KEY_{i}") for i in range(1, 6)
-]
+GROQ_KEYS = [os.getenv(f"GROQ_API_KEY_{i}") for i in range(1, 6)]
 GROQ_KEYS = [k for k in GROQ_KEYS if k]
 logger.info(f"Groq conectado con {len(GROQ_KEYS)} key(s).")
 
@@ -112,6 +107,68 @@ PALABRAS_AFIRMATIVAS = {
     "por favor", "porfa", "adelante", "quiero", "sip", "simon",
     "vamos", "hagamoslo", "hagámoslo", "va que va"
 }
+
+# ─── NUEVO: Palabras clave que fuerzan RAG (bypass del clasificador) ───
+KEYWORDS_RAG_FORZADO = [
+    # Vacacionales
+    "vacacional", "vacaciones", "verano", "invierno", "intensivo",
+    "semana santa", "curso de verano",
+    # Metodología / cómo enseñan
+    "metodolog", "como enseñan", "cómo enseñan", "como aprenden",
+    "cómo aprenden", "que tecnica", "qué técnica", "estilo de enseñ",
+    "forma de enseñ", "proceso de enseñ",
+    # Estacionamiento
+    "estacionamiento", "estacionar", "parking", "donde dejo el auto",
+    # Maestros
+    "maestro", "profesor", "instructor", "quien enseña", "quién enseña",
+    # Materiales
+    "materiales", "que traer", "qué traer", "llevar a clase", "que necesito",
+    "qué necesito", "laptop", "computadora propia",
+    # Reagendar
+    "reagendar", "reponer", "recuperar clase", "falta de mi hijo",
+    "no puedo ir", "no asistir", "clase perdida",
+    # Múltiples cursos
+    "mas de un curso", "más de un curso", "varios cursos", "dos cursos",
+    "multiples cursos", "múltiples cursos",
+    # Becas
+    "beca", "ayuda economica", "ayuda económica", "apoyo economico",
+    # Inclusión
+    "autismo", "inclusion", "inclusión", "necesidades especiales",
+    "discapacidad",
+    # Graduación
+    "graduacion", "graduación", "proyecto final", "ceremonia",
+    # Plataforma
+    "plataforma digital", "plataforma de", "area personal", "área personal",
+    "acceso digital", "materiales digitales",
+    # Eventos
+    "eventos", "competencias", "torneo", "torneos", "scratch",
+    # Director
+    "director", "fundador", "quien dirige", "quién dirige", "juan carlos",
+    "claudia sierra",
+    # Redes
+    "redes sociales", "instagram", "tiktok", "facebook oficial",
+    # Seguimiento
+    "seguimiento", "reportes", "informes", "boleta", "trimestre",
+    # Quiénes somos
+    "quienes son", "quiénes son", "que es goku", "qué es goku",
+    "que es gokulab", "qué es gokulab",
+    # Cambio de horario
+    "cambiar horario", "cambio de grupo", "cambiar de grupo",
+    # Alumnos por grupo
+    "cuantos alumnos", "cuántos alumnos", "tamaño de grupo", "cupo",
+    # Cancelación
+    "cancelar", "dar de baja", "pausar",
+]
+
+def tiene_keyword_rag_forzado(mensaje):
+    """Detecta si el mensaje debe ir directo a RAG por keyword."""
+    if not mensaje:
+        return False
+    texto_lower = mensaje.lower()
+    for kw in KEYWORDS_RAG_FORZADO:
+        if kw in texto_lower:
+            return True
+    return False
 
 # ─────────────────────────────────────────────
 # UTILIDADES GENERALES
@@ -534,13 +591,12 @@ def construir_prompt_multiple(intenciones, todos_datos, config, sentimiento):
         f"3. Sin viñetas de markdown. Usa '•' o saltos de línea si es lista.\n"
         f"4. Máximo 1 emoji por respuesta.\n"
         f"5. Termina con UNA pregunta SOLO si no es despedida.\n"
-        f"6. NUNCA pidas el número de WhatsApp, correo, o datos de contacto. El sistema lo solicita automáticamente cuando es necesario.\n"
+        f"6. NUNCA pidas el número de WhatsApp, correo, o datos de contacto.\n"
         f"7. Cuando incluyas una URL, colócala al FINAL de la oración y NO pongas punto ni coma después."
     )
 
 def construir_prompt_hibrido(intenciones, todos_datos, config, chunks_relevantes, sentimiento):
     academia = config.get("nombre_academia", "Gōku Lab")
-
     instrucciones_combinadas = []
     for intencion in intenciones:
         instruccion = INSTRUCCIONES.get(intencion, f"Responde sobre: {intencion}")
@@ -556,16 +612,16 @@ def construir_prompt_hibrido(intenciones, todos_datos, config, chunks_relevantes
         f"El usuario hizo una consulta sobre: {', '.join(intenciones)}\n"
         f"Instrucciones:\n{chr(10).join(instrucciones_combinadas)}\n"
         f"Datos estructurados (JSON): {todos_datos}\n"
-        f"Información complementaria de nuestra academia (úsala SOLO si es relevante para la consulta):\n{contexto_conocimiento}\n"
+        f"Información complementaria (úsala SOLO si es relevante):\n{contexto_conocimiento}\n"
         f"{EJEMPLOS_ESTILO}\n"
         f"Reglas estrictas:\n"
-        f"1. No inventes información. Si un dato no está, di que lo consultarás.\n"
+        f"1. No inventes información.\n"
         f"2. Máximo 3 oraciones O 3 líneas de lista.\n"
-        f"3. Sin viñetas de markdown. Usa '•' o saltos de línea si es lista.\n"
-        f"4. Máximo 1 emoji por respuesta.\n"
+        f"3. Sin viñetas de markdown. Usa '•' o saltos de línea.\n"
+        f"4. Máximo 1 emoji.\n"
         f"5. Termina con UNA pregunta SOLO si no es despedida.\n"
-        f"6. NUNCA pidas el número de WhatsApp, correo, o datos de contacto.\n"
-        f"7. Cuando incluyas una URL, colócala al FINAL de la oración y NO pongas punto después."
+        f"6. NUNCA pidas el número de WhatsApp.\n"
+        f"7. URLs al FINAL sin punto después."
     )
 
 def construir_prompt_rag(chunks_relevantes, config, sentimiento):
@@ -803,7 +859,6 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
         if es_numero_valido(mensaje):
             return _capturar_numero(numero, mensaje, estado_doc, canal)
 
-        # Timeout: si ya esperamos N turnos, salir del estado
         if turnos_esperando >= TIMEOUT_ESPERANDO_NUMERO:
             if db is not None:
                 db["estados"].delete_one({"numero": numero})
@@ -812,17 +867,12 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
             intenciones_escape, confianzas_escape = predecir_intent(mensaje)
             max_conf = max(confianzas_escape) if confianzas_escape else 0
 
-            # ─── FIX: escape más permisivo ───
-            # Escapa del bucle si:
-            # a) El clasificador detecta intención con confianza >= 0.4, O
-            # b) El mensaje tiene 3+ palabras (indicio de pregunta real)
             es_pregunta_real = (
                 (max_conf >= 0.4 and intenciones_escape != ["Desconocido"])
                 or len(mensaje.strip().split()) >= 3
             )
 
             if es_pregunta_real:
-                # Responder la pregunta y SALIR del estado
                 respuesta_pregunta = _generar_respuesta_normal(
                     numero, mensaje, intenciones_escape, canal, es_corto=False
                 )
@@ -837,7 +887,6 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
                     "canal": canal,
                 }
             else:
-                # Solo pedir número nuevamente
                 if db is not None:
                     db["estados"].update_one(
                         {"numero": numero},
@@ -854,24 +903,32 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
     # 4. Sentimiento
     sentimiento, score_sentimiento = analizar_sentimiento(mensaje)
 
-    # 5. Detección de múltiples preguntas
-    fragmentos = dividir_multiples_preguntas(mensaje)
-    if len(fragmentos) > 1:
-        intenciones_set = set()
-        for frag in fragmentos:
-            ints, _ = predecir_intent(frag)
-            intenciones_set.update(ints)
-        intenciones = [i for i in intenciones_set if i != "Desconocido"] or ["Desconocido"]
-        confianzas = [0.7] * len(intenciones)
+    # 5. ¿Keyword forzada a RAG?
+    forzar_rag = tiene_keyword_rag_forzado(mensaje)
+
+    # 6. Detección de intenciones
+    if forzar_rag:
+        intenciones = ["Desconocido"]
+        confianzas = [0.0]
+        logger.info(f"[Keyword RAG] '{mensaje[:50]}' → forzando RAG")
     else:
-        intenciones, confianzas = predecir_intent(mensaje)
+        fragmentos = dividir_multiples_preguntas(mensaje)
+        if len(fragmentos) > 1:
+            intenciones_set = set()
+            for frag in fragmentos:
+                ints, _ = predecir_intent(frag)
+                intenciones_set.update(ints)
+            intenciones = [i for i in intenciones_set if i != "Desconocido"] or ["Desconocido"]
+            confianzas = [0.7] * len(intenciones)
+        else:
+            intenciones, confianzas = predecir_intent(mensaje)
 
     intencion = intenciones[0]
     confianza = confianzas[0] if confianzas else 0.0
     requiere_humano = any(i in INTENCIONES_REQUIEREN_HUMANO for i in intenciones)
 
-    # 6. Candidatos para revisión
-    if confianza < 0.5 and coleccion is not None:
+    # 7. Candidatos para revisión
+    if confianza < 0.5 and coleccion is not None and not forzar_rag:
         try:
             db["intenciones_candidatas"].insert_one({
                 "texto": mensaje,
@@ -885,18 +942,18 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
         except Exception:
             pass
 
-    # 7. ¿Requiere humano?
-    if requiere_humano:
+    # 8. ¿Requiere humano?
+    if requiere_humano and not forzar_rag:
         return _flujo_requiere_humano(
             numero, mensaje, intenciones, confianza, sentimiento, canal
         )
 
-    # 8. Flujo normal
+    # 9. Flujo normal
     resultado = _generar_respuesta_normal(numero, mensaje, intenciones, canal)
     resultado["sentimiento"] = sentimiento
     resultado["score_sentimiento"] = score_sentimiento
 
-    # 9. Métricas
+    # 10. Métricas
     latencia_ms = int((time.time() - inicio) * 1000)
     if coleccion is not None:
         try:
@@ -910,6 +967,7 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
                 "canal":          canal,
                 "latencia_ms":    latencia_ms,
                 "uso_fallback":   resultado["respuesta"] == RESPUESTA_FALLBACK,
+                "forzar_rag":     forzar_rag,
                 "respuesta":      resultado["respuesta"],
                 "timestamp":      datetime.now(),
             })
@@ -1024,7 +1082,8 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
     """Genera respuesta usando el flujo normal (sin captura de número)."""
 
     # ── Respuesta directa para Consultar_Cursos ──
-    if intenciones == ["Consultar_Cursos"]:
+    # PERO solo si NO es una keyword forzada a RAG
+    if intenciones == ["Consultar_Cursos"] and not tiene_keyword_rag_forzado(mensaje):
         datos_cursos = obtener_datos_por_intencion("Consultar_Cursos")
         lista_directa = formatear_lista_cursos(datos_cursos.get("cursos", []))
         if lista_directa:
@@ -1058,7 +1117,7 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
         todos_datos.update(obtener_datos_por_intencion(i))
     config = todos_datos.get("config") or {}
 
-    # Modo híbrido: siempre buscar chunks relevantes
+    # Modo híbrido
     chunks_relevantes_hibrido = buscar_chunks_relevantes(
         mensaje, CHUNKS_CONOCIMIENTO, VEC_RAG, MATRIZ_RAG,
         k=RAG_TOP_K_HIBRIDO, umbral=RAG_UMBRAL_HIBRIDO
@@ -1234,7 +1293,8 @@ def health():
         "telegram_ok":         bool(TELEGRAM_TOKEN and TELEGRAM_CHAT_ID),
         "admin_protegido":     bool(ADMIN_TOKEN),
         "firma_meta_ok":       bool(META_APP_SECRET),
-        "version":             "v2.6",
+        "version":             "v2.7",
+        "keywords_rag":        len(KEYWORDS_RAG_FORZADO),
         "timestamp":           datetime.now().isoformat(),
     }), 200
 
