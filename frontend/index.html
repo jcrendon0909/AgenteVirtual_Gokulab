@@ -242,20 +242,25 @@
 
   /* ── SUGERENCIAS ── */
   .suggestions {
-    padding: 8px 14px;
+    padding: 10px 14px;
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
     background: white;
     border-top: 1px solid var(--gris-borde);
+    max-height: 140px;
+    overflow-y: auto;
   }
 
+  .suggestions::-webkit-scrollbar { width: 3px; }
+  .suggestions::-webkit-scrollbar-thumb { background: var(--gris-borde); border-radius: 2px; }
+
   .chip {
-    white-space: nowrap; font-size: 12px;
+    white-space: nowrap; font-size: 11px;
     font-family: 'Quicksand', sans-serif; font-weight: 700;
     color: var(--azul); background: rgba(0,174,239,0.08);
     border: 1.5px solid rgba(0,174,239,0.25);
-    padding: 6px 12px; border-radius: 20px;
+    padding: 5px 10px; border-radius: 16px;
     cursor: pointer; transition: all 0.15s; flex-shrink: 0;
   }
 
@@ -357,6 +362,13 @@
     <div class="chip" onclick="sendSuggestion('¿Dan certificado?')">🎓 Certificación</div>
     <div class="chip" onclick="sendSuggestion('¿Tienen clase de prueba?')">🎯 Clase demo</div>
     <div class="chip" onclick="sendSuggestion('¿Cuáles son las formas de pago?')">💳 Pagos</div>
+    <div class="chip" onclick="sendSuggestion('¿Cómo enseñan?')">🧠 Metodología</div>
+    <div class="chip" onclick="sendSuggestion('¿Qué necesito traer a clases?')">🎒 Materiales</div>
+    <div class="chip" onclick="sendSuggestion('¿Quiénes son los maestros?')">👨‍🏫 Maestros</div>
+    <div class="chip" onclick="sendSuggestion('¿Hay estacionamiento?')">🅿️ Estacionamiento</div>
+    <div class="chip" onclick="sendSuggestion('¿Puedo tomar más de un curso?')">📖 Múltiples cursos</div>
+    <div class="chip" onclick="sendSuggestion('¿Qué pasa si falta mi hijo?')">📅 Reagendar</div>
+    <div class="chip" onclick="sendSuggestion('¿Tienen cursos vacacionales?')">🏖️ Vacacionales</div>
   </div>
 
   <!-- Input -->
@@ -388,7 +400,6 @@
   const TIMEOUT_MS = 30000;
   let isSending = false;
 
-  // Limpia URLs viejas cacheadas en el navegador
   try {
     localStorage.removeItem('gokulab_api_url');
   } catch (e) { /* localStorage no disponible */ }
@@ -418,35 +429,25 @@
     }
   }
 
-  // Escapa HTML, convierte markdown ligero y detecta URLs correctamente
-  // (excluye puntuación final para no romper los enlaces)
   function renderizarTextoBot(texto) {
-    // 1. Escapar HTML peligroso
     let out = texto
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
 
-    // 2. Negritas *texto*
     out = out.replace(/\*(.+?)\*/g, '<strong>$1</strong>');
-
-    // 3. Cursivas _texto_
     out = out.replace(/_([^_\n]+)_/g, '<em>$1</em>');
 
-    // 4. URLs: capturar la URL sin puntuación final
-    //    El punto/coma/etc. queda FUERA del <a>
     out = out.replace(
       /(https?:\/\/[^\s<]+?)([.,;:!?)\]]*)(?=\s|<|$)/g,
       (match, url, punct) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>${punct}`
     );
 
-    // 5. Saltos de línea
     out = out.replace(/\n/g, '<br>');
 
     return out;
   }
 
-  // ── RENDERIZADO DE MENSAJES ──────────────────────
   function appendMsg(role, text) {
     const msgs = document.getElementById('messages');
     const wrap = document.createElement('div');
@@ -510,7 +511,6 @@
     if (el) el.remove();
   }
 
-  // ── ENVÍO DE MENSAJES ────────────────────────────
   async function sendMessage(text = null) {
     if (isSending) return;
     const input = document.getElementById('msgInput');
