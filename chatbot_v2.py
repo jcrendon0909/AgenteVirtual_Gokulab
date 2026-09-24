@@ -1,5 +1,6 @@
 # ============================================================
-# CHATBOT GŌKU LAB - v2.8
+# CHATBOT GŌKU LAB - v2.9
+# - Kommo endpoint devuelve JSON (para {{webhook.response.respuesta}})
 # - Integración con Kommo CRM (Salesbot webhook)
 # - Modelo rápido para Kommo (timeout corto)
 # - Keyword RAG override
@@ -1336,17 +1337,17 @@ def chat():
         return jsonify({"respuesta": RESPUESTA_FALLBACK}), 200
 
 # ─────────────────────────────────────────────
-# ENDPOINT PARA KOMMO CRM (Salesbot)
+# ENDPOINT PARA KOMMO CRM (Salesbot) - v2.9 JSON
 # ─────────────────────────────────────────────
 @app.route("/chat-kommo", methods=["POST"])
 def chat_kommo():
-    """Endpoint para Kommo Salesbot. Devuelve texto plano."""
+    """Endpoint para Kommo Salesbot. Devuelve JSON estructurado."""
     try:
         # Aceptar cualquier content-type
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         if not data:
             logger.warning("[Kommo] Payload vacío")
-            return "", 200
+            return jsonify({"respuesta": "", "status": "empty"}), 200
 
         # Log del payload para debug
         logger.info(f"[Kommo] Payload: {str(data)[:300]}")
@@ -1356,7 +1357,7 @@ def chat_kommo():
             token = _extraer_campo(data, ["token", "secret", "auth"])
             if token != KOMMO_SECRET:
                 logger.warning("[Kommo] Token inválido")
-                return "", 200
+                return jsonify({"respuesta": "", "status": "unauthorized"}), 200
 
         # 2. Extraer mensaje y número (múltiples nombres posibles)
         mensaje = _extraer_campo(data, [
@@ -1372,18 +1373,21 @@ def chat_kommo():
 
         if not mensaje:
             logger.warning("[Kommo] No se encontró mensaje en payload")
-            return "", 200
+            return jsonify({"respuesta": "", "status": "no_message"}), 200
 
         # 3. Rate limit
         if not _kommo_rate_limit_check(numero):
             logger.warning(f"[Kommo] Rate limit excedido para {numero[:8]}")
-            return "Estás enviando muchos mensajes seguidos. Por favor espera un momento. 🙏", 200
+            return jsonify({
+                "respuesta": "Estás enviando muchos mensajes seguidos. Por favor espera un momento. 🙏",
+                "status": "rate_limited"
+            }), 200
 
         # 4. Idempotencia
         idem_key = _kommo_idempotency_key(numero, mensaje)
         if mensaje_ya_procesado(idem_key):
             logger.info(f"[Kommo] Duplicado: {idem_key}")
-            return "", 200
+            return jsonify({"respuesta": "", "status": "duplicate"}), 200
         marcar_mensaje_procesado(idem_key, "kommo", numero)
 
         # 5. Procesar
@@ -1405,11 +1409,20 @@ def chat_kommo():
             f"len={len(respuesta)}"
         )
 
-        return respuesta, 200
+        # 7. Devolver JSON estructurado para Kommo
+        return jsonify({
+            "respuesta": respuesta,
+            "intencion": resultado.get("intencion", ""),
+            "status": "ok"
+        }), 200
 
     except Exception as e:
         logger.error(f"[Kommo] Error: {traceback.format_exc()}")
-        return RESPUESTA_FALLBACK, 200
+        return jsonify({
+            "respuesta": RESPUESTA_FALLBACK,
+            "intencion": "error",
+            "status": "error"
+        }), 200
 
 @app.route("/retrain", methods=["POST"])
 def retrain():
@@ -1453,7 +1466,7 @@ def health():
         "admin_protegido":     bool(ADMIN_TOKEN),
         "firma_meta_ok":       bool(META_APP_SECRET),
         "kommo_configurado":   bool(KOMMO_SECRET),
-        "version":             "v2.8",
+        "version":             "v2.9",
         "keywords_rag":        len(KEYWORDS_RAG_FORZADO),
         "timestamp":           datetime.now().isoformat(),
     }), 200
@@ -1692,6 +1705,6 @@ def clear_config_cache():
     }), 200
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 8000))
     logger.info(f"Arrancando Flask en puerto {port}...")
     app.run(host="0.0.0.0", port=port)
