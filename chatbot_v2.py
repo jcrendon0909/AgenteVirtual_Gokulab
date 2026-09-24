@@ -752,26 +752,29 @@ def llamar_groq(messages):
     return RESPUESTA_FALLBACK
 
 def llamar_groq_rapido(messages):
-    """Versión rápida para Kommo (timeout corto). Solo modelo rápido."""
+    """Versión rápida para Kommo. Usa gpt-oss-120b con reasoning bajo."""
     for key_idx, key in enumerate(GROQ_KEYS, 1):
         try:
             cliente = get_groq_client(key)
             respuesta = cliente.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model="openai/gpt-oss-120b",
                 max_tokens=400,
                 temperature=0.7,
                 messages=messages,
-                timeout=8.0,
+                reasoning_effort="low",
+                timeout=15.0,
             )
             contenido = respuesta.choices[0].message.content
             if contenido and contenido.strip():
-                logger.info(f"[Groq rápido] key {key_idx} OK")
+                logger.info(f"[Groq rápido] key {key_idx} OK (len={len(contenido)})")
                 return contenido.strip()
+            else:
+                logger.warning(f"[Groq rápido] key {key_idx} devolvió contenido vacío")
         except Exception as e:
-            logger.warning(f"[Groq rápido] key {key_idx} FALLÓ: {type(e).__name__}")
+            logger.warning(f"[Groq rápido] key {key_idx} FALLÓ: {type(e).__name__}: {str(e)[:150]}")
             continue
-    logger.error("[Groq rápido] Todas las keys fallaron")
-    return RESPUESTA_FALLBACK
+    logger.error("[Groq rápido] Todas las keys fallaron, usando fallback general")
+    return llamar_groq(messages)
 
 # ─────────────────────────────────────────────
 # IDEMPOTENCIA
