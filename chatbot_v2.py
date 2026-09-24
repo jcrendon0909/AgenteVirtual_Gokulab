@@ -1,7 +1,9 @@
 # ============================================================
-# CHATBOT GŌKU LAB - v2.7
-# - Keyword override: palabras clave que fuerzan RAG
-# - Fix: "cursos vacacionales" y "metodología" ahora caen al RAG
+# CHATBOT GŌKU LAB - v2.8
+# - Integración con Kommo CRM (Salesbot webhook)
+# - Modelo rápido para Kommo (timeout corto)
+# - Keyword RAG override
+# - Modo híbrido: intención + RAG
 # ============================================================
 import os
 import re
@@ -83,6 +85,9 @@ ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
 # ─── Meta secrets ───────────────────────────
 META_APP_SECRET = os.getenv("META_APP_SECRET", "") or os.getenv("WA_APP_SECRET", "")
 
+# ─── Kommo secret ───────────────────────────
+KOMMO_SECRET = os.getenv("KOMMO_SECRET", "")
+
 # ─── Analizador de sentimiento ──────────────
 analizador_sentimiento = SentimentIntensityAnalyzer()
 
@@ -96,6 +101,7 @@ RAG_TOP_K_HIBRIDO     = 2
 UMBRAL_PALABRAS_CORTO = 3
 TIMEOUT_ESPERANDO_NUMERO = 3
 MAX_LEN_MENSAJE       = 1000
+KOMMO_MAX_LEN         = 4000
 
 MODELOS_GROQ = [
     {"nombre": "openai/gpt-oss-120b", "max_tokens": 800, "es_razonamiento": True},
@@ -108,12 +114,12 @@ PALABRAS_AFIRMATIVAS = {
     "vamos", "hagamoslo", "hagámoslo", "va que va"
 }
 
-# ─── NUEVO: Palabras clave que fuerzan RAG (bypass del clasificador) ───
+# ─── Keywords que fuerzan RAG ───
 KEYWORDS_RAG_FORZADO = [
     # Vacacionales
     "vacacional", "vacaciones", "verano", "invierno", "intensivo",
     "semana santa", "curso de verano",
-    # Metodología / cómo enseñan
+    # Metodología
     "metodolog", "como enseñan", "cómo enseñan", "como aprenden",
     "cómo aprenden", "que tecnica", "qué técnica", "estilo de enseñ",
     "forma de enseñ", "proceso de enseñ",
@@ -161,7 +167,6 @@ KEYWORDS_RAG_FORZADO = [
 ]
 
 def tiene_keyword_rag_forzado(mensaje):
-    """Detecta si el mensaje debe ir directo a RAG por keyword."""
     if not mensaje:
         return False
     texto_lower = mensaje.lower()
@@ -179,6 +184,26 @@ def _a_texto(valor):
     if isinstance(valor, list):
         return ", ".join(str(v).strip() for v in valor if v is not None and str(v).strip())
     return str(valor).strip()
+
+def _extraer_campo(data, nombres_posibles, default=""):
+    """Extrae el primer campo encontrado entre varios nombres posibles.
+    Busca también en subobjetos comunes de Kommo (lead, contact)."""
+    for nombre in nombres_posibles:
+        if nombre in data:
+            valor = data[nombre]
+            if valor is not None and str(valor).strip():
+                return str(valor).strip()
+
+    for subkey in ("lead", "contact", "contacto", "cliente", "data"):
+        subobj = data.get(subkey)
+        if isinstance(subobj, dict):
+            for nombre in nombres_posibles:
+                if nombre in subobj:
+                    valor = subobj[nombre]
+                    if valor is not None and str(valor).strip():
+                        return str(valor).strip()
+
+    return default
 
 # ─────────────────────────────────────────────
 # LIMPIEZA DE TEXTO
@@ -586,13 +611,13 @@ def construir_prompt_multiple(intenciones, todos_datos, config, sentimiento):
         f"Datos disponibles (JSON): {todos_datos}\n"
         f"{EJEMPLOS_ESTILO}\n"
         f"Reglas estrictas:\n"
-        f"1. No inventes información. Si un dato no está en 'Datos disponibles', di que lo consultarás.\n"
+        f"1. No inventes información. Si un dato no está, di que lo consultarás.\n"
         f"2. Máximo 3 oraciones O 3 líneas de lista.\n"
-        f"3. Sin viñetas de markdown. Usa '•' o saltos de línea si es lista.\n"
+        f"3. Sin viñetas de markdown. Usa '•' o saltos de línea.\n"
         f"4. Máximo 1 emoji por respuesta.\n"
         f"5. Termina con UNA pregunta SOLO si no es despedida.\n"
         f"6. NUNCA pidas el número de WhatsApp, correo, o datos de contacto.\n"
-        f"7. Cuando incluyas una URL, colócala al FINAL de la oración y NO pongas punto ni coma después."
+        f"7. URLs al FINAL sin punto después."
     )
 
 def construir_prompt_hibrido(intenciones, todos_datos, config, chunks_relevantes, sentimiento):
@@ -631,7 +656,8 @@ def construir_prompt_rag(chunks_relevantes, config, sentimiento):
         GUARDIA_ROL +
         f"Eres el asistente virtual de {academia}. Responde en español mexicano.\n"
         f"Tono: {TONO_MAP.get(sentimiento, TONO_MAP['neutral'])}\n"
-        f"Usa SOLO esta información. Si no está aquí, di que lo consultarás:\n{contexto}\n"
+        f"Usa la siguiente información para responder. Si el tema general está cubierto, "
+        f"aunque no encuentres la frase exacta, responde con lo que sepas:\n{contexto}\n"
         f"Reglas: máximo 3 oraciones. Sin viñetas markdown. Termina con pregunta SOLO si no es despedida."
     )
 
@@ -677,7 +703,7 @@ def formatear_para_telegram(respuesta):
     return respuesta
 
 def formatear_respuesta(respuesta, canal):
-    if canal == "whatsapp":
+    if canal in ("whatsapp", "kommo"):
         return formatear_para_whatsapp(respuesta)
     elif canal == "web":
         return formatear_para_web(respuesta)
@@ -694,6 +720,7 @@ RESPUESTA_FALLBACK = (
 )
 
 def llamar_groq(messages):
+    """Versión completa con fallback entre keys y modelos."""
     for key_idx, key in enumerate(GROQ_KEYS, 1):
         for modelo_cfg in MODELOS_GROQ:
             modelo = modelo_cfg["nombre"]
@@ -723,6 +750,28 @@ def llamar_groq(messages):
     logger.error("[Groq] TODAS las keys y modelos fallaron")
     return RESPUESTA_FALLBACK
 
+def llamar_groq_rapido(messages):
+    """Versión rápida para Kommo (timeout corto). Solo modelo rápido."""
+    for key_idx, key in enumerate(GROQ_KEYS, 1):
+        try:
+            cliente = get_groq_client(key)
+            respuesta = cliente.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                max_tokens=400,
+                temperature=0.7,
+                messages=messages,
+                timeout=8.0,
+            )
+            contenido = respuesta.choices[0].message.content
+            if contenido and contenido.strip():
+                logger.info(f"[Groq rápido] key {key_idx} OK")
+                return contenido.strip()
+        except Exception as e:
+            logger.warning(f"[Groq rápido] key {key_idx} FALLÓ: {type(e).__name__}")
+            continue
+    logger.error("[Groq rápido] Todas las keys fallaron")
+    return RESPUESTA_FALLBACK
+
 # ─────────────────────────────────────────────
 # IDEMPOTENCIA
 # ─────────────────────────────────────────────
@@ -746,6 +795,30 @@ def marcar_mensaje_procesado(message_id, canal, numero):
         })
     except Exception as e:
         logger.error(f"Error marcando mensaje: {e}")
+
+# ─────────────────────────────────────────────
+# RATE LIMIT KOMMO
+# ─────────────────────────────────────────────
+_kommo_rate_limit = {}
+_kommo_rate_lock = Lock()
+KOMMO_RATE_LIMIT = 15
+KOMMO_RATE_WINDOW = 60
+
+def _kommo_rate_limit_check(numero):
+    ahora = time.time()
+    with _kommo_rate_lock:
+        timestamps = _kommo_rate_limit.get(numero, [])
+        timestamps = [t for t in timestamps if ahora - t < KOMMO_RATE_WINDOW]
+        if len(timestamps) >= KOMMO_RATE_LIMIT:
+            _kommo_rate_limit[numero] = timestamps
+            return False
+        timestamps.append(ahora)
+        _kommo_rate_limit[numero] = timestamps
+        return True
+
+def _kommo_idempotency_key(numero, mensaje):
+    raw = f"{numero}:{mensaje}:{int(time.time() // 30)}"
+    return "kommo_" + hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 # ─────────────────────────────────────────────
 # UTILIDADES DE CURSOS
@@ -878,7 +951,7 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
                 )
                 if db is not None:
                     db["estados"].delete_one({"numero": numero})
-                logger.info(f"[Escape esperando_numero] {numero} → respondiendo '{mensaje[:40]}'")
+                logger.info(f"[Escape esperando_numero] {numero} → '{mensaje[:40]}'")
                 return {
                     "respuesta": respuesta_pregunta["respuesta"],
                     "intencion": respuesta_pregunta["intencion"],
@@ -1079,10 +1152,9 @@ def _flujo_requiere_humano(numero, mensaje, intenciones, confianza, sentimiento,
     }
 
 def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None):
-    """Genera respuesta usando el flujo normal (sin captura de número)."""
+    """Genera respuesta usando el flujo normal."""
 
     # ── Respuesta directa para Consultar_Cursos ──
-    # PERO solo si NO es una keyword forzada a RAG
     if intenciones == ["Consultar_Cursos"] and not tiene_keyword_rag_forzado(mensaje):
         datos_cursos = obtener_datos_por_intencion("Consultar_Cursos")
         lista_directa = formatear_lista_cursos(datos_cursos.get("cursos", []))
@@ -1117,11 +1189,13 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
         todos_datos.update(obtener_datos_por_intencion(i))
     config = todos_datos.get("config") or {}
 
-    # Modo híbrido
+    # Modo híbrido con umbral dinámico
+    umbral_dinamico = 0.05 if tiene_keyword_rag_forzado(mensaje) else RAG_UMBRAL_HIBRIDO
     chunks_relevantes_hibrido = buscar_chunks_relevantes(
         mensaje, CHUNKS_CONOCIMIENTO, VEC_RAG, MATRIZ_RAG,
-        k=RAG_TOP_K_HIBRIDO, umbral=RAG_UMBRAL_HIBRIDO
+        k=RAG_TOP_K_HIBRIDO, umbral=umbral_dinamico
     )
+    logger.info(f"[RAG] umbral={umbral_dinamico} chunks={len(chunks_relevantes_hibrido)}")
 
     # Historial reciente
     historial_groq = []
@@ -1160,6 +1234,7 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
         if chunks_relevantes_hibrido:
             prompt = construir_prompt_rag(chunks_relevantes_hibrido, config, "neutral")
         else:
+            logger.warning(f"[RAG] Sin chunks para '{mensaje[:50]}'")
             prompt = construir_prompt_sin_info(config, "neutral")
     elif chunks_relevantes_hibrido:
         logger.info(f"[Híbrido] intenciones={intenciones} chunks={len(chunks_relevantes_hibrido)}")
@@ -1169,11 +1244,19 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
     else:
         prompt = construir_prompt_multiple(intenciones, todos_datos, config, "neutral")
 
-    respuesta = llamar_groq([
-        {"role": "system", "content": prompt},
-        *historial_groq,
-        {"role": "user",   "content": mensaje},
-    ])
+    # Elegir modelo rápido para Kommo (timeout corto)
+    if canal == "kommo":
+        respuesta = llamar_groq_rapido([
+            {"role": "system", "content": prompt},
+            *historial_groq,
+            {"role": "user",   "content": mensaje},
+        ])
+    else:
+        respuesta = llamar_groq([
+            {"role": "system", "content": prompt},
+            *historial_groq,
+            {"role": "user",   "content": mensaje},
+        ])
 
     if coleccion is not None:
         try:
@@ -1252,6 +1335,82 @@ def chat():
         logger.error(f"Error en /chat: {traceback.format_exc()}")
         return jsonify({"respuesta": RESPUESTA_FALLBACK}), 200
 
+# ─────────────────────────────────────────────
+# ENDPOINT PARA KOMMO CRM (Salesbot)
+# ─────────────────────────────────────────────
+@app.route("/chat-kommo", methods=["POST"])
+def chat_kommo():
+    """Endpoint para Kommo Salesbot. Devuelve texto plano."""
+    try:
+        # Aceptar cualquier content-type
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        if not data:
+            logger.warning("[Kommo] Payload vacío")
+            return "", 200
+
+        # Log del payload para debug
+        logger.info(f"[Kommo] Payload: {str(data)[:300]}")
+
+        # 1. Validar secret si está configurado
+        if KOMMO_SECRET:
+            token = _extraer_campo(data, ["token", "secret", "auth"])
+            if token != KOMMO_SECRET:
+                logger.warning("[Kommo] Token inválido")
+                return "", 200
+
+        # 2. Extraer mensaje y número (múltiples nombres posibles)
+        mensaje = _extraer_campo(data, [
+            "mensaje", "message", "text", "texto",
+            "last_message", "last_message_text",
+            "ultimo_mensaje", "contenido", "body"
+        ])
+        numero = _extraer_campo(data, [
+            "numero", "number", "phone", "telefono", "teléfono",
+            "contact_phone", "phone_number", "whatsapp",
+            "contact_id", "lead_id",
+        ], default="kommo_anonimo")
+
+        if not mensaje:
+            logger.warning("[Kommo] No se encontró mensaje en payload")
+            return "", 200
+
+        # 3. Rate limit
+        if not _kommo_rate_limit_check(numero):
+            logger.warning(f"[Kommo] Rate limit excedido para {numero[:8]}")
+            return "Estás enviando muchos mensajes seguidos. Por favor espera un momento. 🙏", 200
+
+        # 4. Idempotencia
+        idem_key = _kommo_idempotency_key(numero, mensaje)
+        if mensaje_ya_procesado(idem_key):
+            logger.info(f"[Kommo] Duplicado: {idem_key}")
+            return "", 200
+        marcar_mensaje_procesado(idem_key, "kommo", numero)
+
+        # 5. Procesar
+        resultado = procesar_mensaje(
+            numero=numero,
+            mensaje=mensaje,
+            canal="kommo"
+        )
+
+        respuesta = resultado.get("respuesta") or RESPUESTA_FALLBACK
+
+        # 6. Truncar
+        if len(respuesta) > KOMMO_MAX_LEN:
+            respuesta = respuesta[:KOMMO_MAX_LEN - 50].rstrip() + "..."
+
+        logger.info(
+            f"[Kommo] OK numero={numero[:8]} "
+            f"intencion={resultado.get('intencion')} "
+            f"len={len(respuesta)}"
+        )
+
+        return respuesta, 200
+
+    except Exception as e:
+        logger.error(f"[Kommo] Error: {traceback.format_exc()}")
+        return RESPUESTA_FALLBACK, 200
+
 @app.route("/retrain", methods=["POST"])
 def retrain():
     if not verificar_admin():
@@ -1293,7 +1452,8 @@ def health():
         "telegram_ok":         bool(TELEGRAM_TOKEN and TELEGRAM_CHAT_ID),
         "admin_protegido":     bool(ADMIN_TOKEN),
         "firma_meta_ok":       bool(META_APP_SECRET),
-        "version":             "v2.7",
+        "kommo_configurado":   bool(KOMMO_SECRET),
+        "version":             "v2.8",
         "keywords_rag":        len(KEYWORDS_RAG_FORZADO),
         "timestamp":           datetime.now().isoformat(),
     }), 200
@@ -1316,7 +1476,6 @@ def facebook_feed():
 # ─────────────────────────────────────────────
 # WEBHOOKS
 # ─────────────────────────────────────────────
-
 @app.route("/webhook/telegram", methods=["POST"])
 def telegram_webhook():
     try:
