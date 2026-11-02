@@ -1706,7 +1706,61 @@ def clear_config_cache():
         "mensaje": "Cache de datos_generales limpiado",
         "datos": _config_cache["data"],
     }), 200
+# ==========================================
+# ENDPOINT PARA EL FRONTEND DE REACT (Cursos)
+# ==========================================
+@app.route("/api/cursos", methods=["GET"])
+def get_cursos():
+    try:
+        # Buscamos todos los cursos en MongoDB
+        cursos_db = list(db["cursos"].find({}, {"_id": 0}))
+        
+        cursos_formateados = []
+        for c in cursos_db:
+            # Mapeo seguro: usamos los campos de tu JSON de Mongo
+            curso = {
+                "id": c.get("slug", c.get("idCurso", "").lower()),
+                "title": c.get("nombreCurso", "Curso GōkuLab"),
+                "subtitle": c.get("descripción", "Aprende creando desde el primer día"),
+                "age": c.get("edad_dirigida", "Todas las edades"),
+                "level": c.get("nivel", "Básico"),
+                "duration": f"{c.get('duración_min_clase', 90)} min por clase",
+                "modality": ", ".join(c.get("modalidad", ["Presencial"])) if isinstance(c.get("modalidad"), list) else c.get("modalidad", "Presencial"),
+                "price": "desde $1,600",
+                "emoji": "🚀",
+                "color": "#00C9FF",
+                "imgKey": c.get("slug", ""),
+                "videoUrl": c.get("videoUrl", ""), # Aquí tomará el video que pongas en Mongo
+                "valueProps": [],
+                "modules": [],
+                "techs": c.get("qué_aprende", [])[:3] # Usamos los primeros 3 aprendizajes como "techs"
+            }
+            
+            # Mapear beneficios (soft skills) a valueProps
+            beneficios = c.get("beneficios", [])
+            for b in beneficios:
+                curso["valueProps"].append({
+                    "title": b,
+                    "desc": "Habilidad clave para su desarrollo personal y profesional.",
+                    "icon": "✨"
+                })
+                
+            # Mapear qué_aprende a modules (si no hay módulos estructurados aún)
+            que_aprende = c.get("qué_aprende", [])
+            if que_aprende:
+                curso["modules"].append({
+                    "id": "m1",
+                    "title": "Lo que dominará",
+                    "lessons": len(que_aprende),
+                    "topics": que_aprende
+                })
 
+            cursos_formateados.append(curso)
+            
+        return jsonify(cursos_formateados), 200
+    except Exception as e:
+        logger.error(f"Error en /api/cursos: {e}")
+        return jsonify({"error": str(e)}), 500
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     logger.info(f"Arrancando Flask en puerto {port}...")
