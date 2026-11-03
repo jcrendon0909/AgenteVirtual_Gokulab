@@ -106,7 +106,10 @@ KOMMO_MAX_LEN         = 4000
 
 MODELOS_GROQ = [
     {"nombre": "openai/gpt-oss-120b", "max_tokens": 800, "es_razonamiento": True},
+    {"nombre": "llama-3.3-70b-versatile", "max_tokens": 800, "es_razonamiento": False},
     {"nombre": "llama-3.1-8b-instant", "max_tokens": 400, "es_razonamiento": False},
+    {"nombre": "mixtral-8x7b-32768", "max_tokens": 400, "es_razonamiento": False},
+]
 ]
 
 PALABRAS_AFIRMATIVAS = {
