@@ -110,7 +110,6 @@ MODELOS_GROQ = [
     {"nombre": "llama-3.1-8b-instant", "max_tokens": 400, "es_razonamiento": False},
     {"nombre": "mixtral-8x7b-32768", "max_tokens": 400, "es_razonamiento": False},
 ]
-]
 
 PALABRAS_AFIRMATIVAS = {
     "si", "sí", "yes", "claro", "ok", "okay", "dale", "va", "sale",
