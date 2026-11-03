@@ -105,9 +105,8 @@ MAX_LEN_MENSAJE       = 1000
 KOMMO_MAX_LEN         = 4000
 
 MODELOS_GROQ = [
-    {"nombre": "llama-3.3-70b-versatile", "max_tokens": 800, "es_razonamiento": False},
-    {"nombre": "llama-3.1-8b-instant", "max_tokens": 400, "es_razonamiento": False},
-    {"nombre": "mixtral-8x7b-32768", "max_tokens": 400, "es_razonamiento": False},
+    {"nombre": "openai/gpt-oss-120b", "max_tokens": 800},
+    {"nombre": "openai/gpt-oss-20b", "max_tokens": 400},
 ]
 
 PALABRAS_AFIRMATIVAS = {
@@ -731,7 +730,7 @@ def llamar_groq(messages):
                     "temperature": 0.7,
                     "messages": messages,
                 }
-                # Se eliminó reasoning_effort porque no aplica a Llama 3.3 en Groq
+                # Se eliminó reasoning_effort para evitar el error de modelo no encontrado
 
                 respuesta = cliente.chat.completions.create(**kwargs)
                 contenido = respuesta.choices[0].message.content
@@ -749,12 +748,12 @@ def llamar_groq(messages):
     return RESPUESTA_FALLBACK
 
 def llamar_groq_rapido(messages):
-    """Versión rápida para Kommo."""
+    """Versión rápida para Kommo. Usa gpt-oss-120b."""
     for key_idx, key in enumerate(GROQ_KEYS, 1):
         try:
             cliente = get_groq_client(key)
             respuesta = cliente.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model="openai/gpt-oss-120b",
                 max_tokens=400,
                 temperature=0.7,
                 messages=messages,
@@ -1592,7 +1591,7 @@ def test_groq():
         try:
             cliente = get_groq_client(key)
             respuesta = cliente.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model="openai/gpt-oss-120b",
                 messages=[{"role": "user", "content": "Di 'Hola'"}],
                 max_tokens=20,
                 temperature=0.1,
