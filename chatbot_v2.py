@@ -105,7 +105,6 @@ MAX_LEN_MENSAJE       = 1000
 KOMMO_MAX_LEN         = 4000
 
 MODELOS_GROQ = [
-    {"nombre": "openai/gpt-oss-120b", "max_tokens": 800, "es_razonamiento": True},
     {"nombre": "llama-3.3-70b-versatile", "max_tokens": 800, "es_razonamiento": False},
     {"nombre": "llama-3.1-8b-instant", "max_tokens": 400, "es_razonamiento": False},
     {"nombre": "mixtral-8x7b-32768", "max_tokens": 400, "es_razonamiento": False},
@@ -189,8 +188,6 @@ def _a_texto(valor):
     return str(valor).strip()
 
 def _extraer_campo(data, nombres_posibles, default=""):
-    """Extrae el primer campo encontrado entre varios nombres posibles.
-    Busca también en subobjetos comunes de Kommo (lead, contact)."""
     for nombre in nombres_posibles:
         if nombre in data:
             valor = data[nombre]
@@ -723,7 +720,6 @@ RESPUESTA_FALLBACK = (
 )
 
 def llamar_groq(messages):
-    """Versión completa con fallback entre keys y modelos."""
     for key_idx, key in enumerate(GROQ_KEYS, 1):
         for modelo_cfg in MODELOS_GROQ:
             modelo = modelo_cfg["nombre"]
@@ -735,8 +731,7 @@ def llamar_groq(messages):
                     "temperature": 0.7,
                     "messages": messages,
                 }
-                if modelo_cfg["es_razonamiento"]:
-                    kwargs["reasoning_effort"] = "low"
+                # Se eliminó reasoning_effort porque no aplica a Llama 3.3 en Groq
 
                 respuesta = cliente.chat.completions.create(**kwargs)
                 contenido = respuesta.choices[0].message.content
@@ -754,16 +749,15 @@ def llamar_groq(messages):
     return RESPUESTA_FALLBACK
 
 def llamar_groq_rapido(messages):
-    """Versión rápida para Kommo. Usa gpt-oss-120b con reasoning bajo."""
+    """Versión rápida para Kommo."""
     for key_idx, key in enumerate(GROQ_KEYS, 1):
         try:
             cliente = get_groq_client(key)
             respuesta = cliente.chat.completions.create(
-                model="openai/gpt-oss-120b",
+                model="llama-3.3-70b-versatile",
                 max_tokens=400,
                 temperature=0.7,
                 messages=messages,
-                reasoning_effort="low",
                 timeout=15.0,
             )
             contenido = respuesta.choices[0].message.content
@@ -911,10 +905,8 @@ def respuesta_clase_demo(numero, canal):
 # ─────────────────────────────────────────────
 def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
     inicio = time.time()
-
     mensaje = truncar_mensaje(mensaje, MAX_LEN_MENSAJE)
 
-    # 1. Validación
     es_valido, motivo = validar_entrada(mensaje)
     if not es_valido:
         return {
@@ -925,7 +917,6 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
             "canal": canal,
         }
 
-    # 2. Estado actual
     estado_doc = None
     if db is not None:
         estado_doc = db["estados"].find_one({"numero": numero})
@@ -933,7 +924,6 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
     esperando_numero = bool(estado_doc and estado_doc.get("esperando_numero"))
     turnos_esperando = int(estado_doc.get("turnos_esperando", 0)) if estado_doc else 0
 
-    # 3. Si está esperando número
     if esperando_numero:
         if es_numero_valido(mensaje):
             return _capturar_numero(numero, mensaje, estado_doc, canal)
@@ -979,13 +969,9 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
                     "canal": canal,
                 }
 
-    # 4. Sentimiento
     sentimiento, score_sentimiento = analizar_sentimiento(mensaje)
-
-    # 5. ¿Keyword forzada a RAG?
     forzar_rag = tiene_keyword_rag_forzado(mensaje)
 
-    # 6. Detección de intenciones
     if forzar_rag:
         intenciones = ["Desconocido"]
         confianzas = [0.0]
@@ -1006,7 +992,6 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
     confianza = confianzas[0] if confianzas else 0.0
     requiere_humano = any(i in INTENCIONES_REQUIEREN_HUMANO for i in intenciones)
 
-    # 7. Candidatos para revisión
     if confianza < 0.5 and coleccion is not None and not forzar_rag:
         try:
             db["intenciones_candidatas"].insert_one({
@@ -1021,18 +1006,15 @@ def procesar_mensaje(numero: str, mensaje: str, canal: str = "web") -> dict:
         except Exception:
             pass
 
-    # 8. ¿Requiere humano?
     if requiere_humano and not forzar_rag:
         return _flujo_requiere_humano(
             numero, mensaje, intenciones, confianza, sentimiento, canal
         )
 
-    # 9. Flujo normal
     resultado = _generar_respuesta_normal(numero, mensaje, intenciones, canal)
     resultado["sentimiento"] = sentimiento
     resultado["score_sentimiento"] = score_sentimiento
 
-    # 10. Métricas
     latencia_ms = int((time.time() - inicio) * 1000)
     if coleccion is not None:
         try:
@@ -1158,9 +1140,6 @@ def _flujo_requiere_humano(numero, mensaje, intenciones, confianza, sentimiento,
     }
 
 def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None):
-    """Genera respuesta usando el flujo normal."""
-
-    # ── Respuesta directa para Consultar_Cursos ──
     if intenciones == ["Consultar_Cursos"] and not tiene_keyword_rag_forzado(mensaje):
         datos_cursos = obtener_datos_por_intencion("Consultar_Cursos")
         lista_directa = formatear_lista_cursos(datos_cursos.get("cursos", []))
@@ -1187,7 +1166,6 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
                 "canal": canal,
             }
 
-    # ── Flujo normal con Groq ──
     usar_rag = intenciones == ["Desconocido"]
 
     todos_datos = {}
@@ -1195,7 +1173,6 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
         todos_datos.update(obtener_datos_por_intencion(i))
     config = todos_datos.get("config") or {}
 
-    # Modo híbrido con umbral dinámico
     umbral_dinamico = 0.05 if tiene_keyword_rag_forzado(mensaje) else RAG_UMBRAL_HIBRIDO
     chunks_relevantes_hibrido = buscar_chunks_relevantes(
         mensaje, CHUNKS_CONOCIMIENTO, VEC_RAG, MATRIZ_RAG,
@@ -1203,7 +1180,6 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
     )
     logger.info(f"[RAG] umbral={umbral_dinamico} chunks={len(chunks_relevantes_hibrido)}")
 
-    # Historial reciente
     historial_groq = []
     if coleccion is not None:
         hist_db = list(
@@ -1214,7 +1190,6 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
             historial_groq.append({"role": "user",      "content": h["mensaje"]})
             historial_groq.append({"role": "assistant", "content": h["respuesta"]})
 
-    # Detección de "sí" tras oferta de demo
     if es_afirmacion_corta(mensaje) and historial_groq:
         ultimo_bot = ""
         for m in reversed(historial_groq):
@@ -1250,7 +1225,6 @@ def _generar_respuesta_normal(numero, mensaje, intenciones, canal, es_corto=None
     else:
         prompt = construir_prompt_multiple(intenciones, todos_datos, config, "neutral")
 
-    # Elegir modelo rápido para Kommo (timeout corto)
     if canal == "kommo":
         respuesta = llamar_groq_rapido([
             {"role": "system", "content": prompt},
@@ -1341,30 +1315,22 @@ def chat():
         logger.error(f"Error en /chat: {traceback.format_exc()}")
         return jsonify({"respuesta": RESPUESTA_FALLBACK}), 200
 
-# ─────────────────────────────────────────────
-# ENDPOINT PARA KOMMO CRM (Salesbot) - v2.9 JSON
-# ─────────────────────────────────────────────
 @app.route("/chat-kommo", methods=["POST"])
 def chat_kommo():
-    """Endpoint para Kommo Salesbot. Devuelve JSON estructurado."""
     try:
-        # Aceptar cualquier content-type
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         if not data:
             logger.warning("[Kommo] Payload vacío")
             return jsonify({"respuesta": "", "status": "empty"}), 200
 
-        # Log del payload para debug
         logger.info(f"[Kommo] Payload: {str(data)[:300]}")
 
-        # 1. Validar secret si está configurado
         if KOMMO_SECRET:
             token = _extraer_campo(data, ["token", "secret", "auth"])
             if token != KOMMO_SECRET:
                 logger.warning("[Kommo] Token inválido")
                 return jsonify({"respuesta": "", "status": "unauthorized"}), 200
 
-        # 2. Extraer mensaje y número (múltiples nombres posibles)
         mensaje = _extraer_campo(data, [
             "mensaje", "message", "text", "texto",
             "last_message", "last_message_text",
@@ -1380,7 +1346,6 @@ def chat_kommo():
             logger.warning("[Kommo] No se encontró mensaje en payload")
             return jsonify({"respuesta": "", "status": "no_message"}), 200
 
-        # 3. Rate limit
         if not _kommo_rate_limit_check(numero):
             logger.warning(f"[Kommo] Rate limit excedido para {numero[:8]}")
             return jsonify({
@@ -1388,14 +1353,12 @@ def chat_kommo():
                 "status": "rate_limited"
             }), 200
 
-        # 4. Idempotencia
         idem_key = _kommo_idempotency_key(numero, mensaje)
         if mensaje_ya_procesado(idem_key):
             logger.info(f"[Kommo] Duplicado: {idem_key}")
             return jsonify({"respuesta": "", "status": "duplicate"}), 200
         marcar_mensaje_procesado(idem_key, "kommo", numero)
 
-        # 5. Procesar
         resultado = procesar_mensaje(
             numero=numero,
             mensaje=mensaje,
@@ -1404,7 +1367,6 @@ def chat_kommo():
 
         respuesta = resultado.get("respuesta") or RESPUESTA_FALLBACK
 
-        # 6. Truncar
         if len(respuesta) > KOMMO_MAX_LEN:
             respuesta = respuesta[:KOMMO_MAX_LEN - 50].rstrip() + "..."
 
@@ -1414,7 +1376,6 @@ def chat_kommo():
             f"len={len(respuesta)}"
         )
 
-        # 7. Devolver JSON estructurado para Kommo
         return jsonify({
             "respuesta": respuesta,
             "intencion": resultado.get("intencion", ""),
@@ -1491,9 +1452,6 @@ def facebook_feed():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ─────────────────────────────────────────────
-# WEBHOOKS
-# ─────────────────────────────────────────────
 @app.route("/webhook/telegram", methods=["POST"])
 def telegram_webhook():
     try:
@@ -1515,7 +1473,6 @@ def telegram_webhook():
         logger.error(f"Error webhook Telegram: {e}")
         return "OK", 200
 
-# ---------- WHATSAPP ----------
 from pywa import WhatsApp
 
 WA_PHONE_ID     = os.getenv("WA_PHONE_ID")
@@ -1581,7 +1538,6 @@ def whatsapp_webhook():
         logger.error(f"Error webhook WhatsApp: {traceback.format_exc()}")
         return "Error", 500
 
-# ---------- MESSENGER / INSTAGRAM ----------
 PAGE_ACCESS_TOKEN = os.getenv("META_PAGE_ACCESS_TOKEN")
 META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "gokulab_meta_verify")
 
@@ -1627,9 +1583,6 @@ def meta_webhook():
         logger.error(f"Error webhook Meta: {traceback.format_exc()}")
         return "Error", 500
 
-# ─────────────────────────────────────────────
-# DIAGNÓSTICO
-# ─────────────────────────────────────────────
 @app.route("/test-groq", methods=["GET"])
 def test_groq():
     if not verificar_admin():
@@ -1708,18 +1661,13 @@ def clear_config_cache():
         "mensaje": "Cache de datos_generales limpiado",
         "datos": _config_cache["data"],
     }), 200
-# ==========================================
-# ENDPOINT PARA EL FRONTEND DE REACT (Cursos)
-# ==========================================
+
 @app.route("/api/cursos", methods=["GET"])
 def get_cursos():
     try:
-        # Buscamos todos los cursos en MongoDB
         cursos_db = list(db["cursos"].find({}, {"_id": 0}))
-        
         cursos_formateados = []
         for c in cursos_db:
-            # Mapeo seguro: usamos los campos de tu JSON de Mongo
             curso = {
                 "id": c.get("slug", c.get("idCurso", "").lower()),
                 "title": c.get("nombreCurso", "Curso GōkuLab"),
@@ -1732,13 +1680,12 @@ def get_cursos():
                 "emoji": "🚀",
                 "color": "#00C9FF",
                 "imgKey": c.get("slug", ""),
-                "videoUrl": c.get("videoUrl", ""), # Aquí tomará el video que pongas en Mongo
+                "videoUrl": c.get("videoUrl", ""),
                 "valueProps": [],
                 "modules": [],
-                "techs": c.get("qué_aprende", [])[:3] # Usamos los primeros 3 aprendizajes como "techs"
+                "techs": c.get("qué_aprende", [])[:3]
             }
             
-            # Mapear beneficios (soft skills) a valueProps
             beneficios = c.get("beneficios", [])
             for b in beneficios:
                 curso["valueProps"].append({
@@ -1747,7 +1694,6 @@ def get_cursos():
                     "icon": "✨"
                 })
                 
-            # Mapear qué_aprende a modules (si no hay módulos estructurados aún)
             que_aprende = c.get("qué_aprende", [])
             if que_aprende:
                 curso["modules"].append({
@@ -1763,6 +1709,7 @@ def get_cursos():
     except Exception as e:
         logger.error(f"Error en /api/cursos: {e}")
         return jsonify({"error": str(e)}), 500
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     logger.info(f"Arrancando Flask en puerto {port}...")
