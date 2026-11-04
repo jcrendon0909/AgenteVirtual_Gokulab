@@ -1718,7 +1718,43 @@ def get_cursos():
     except Exception as e:
         logger.error(f"Error en /api/cursos: {e}")
         return jsonify({"error": str(e)}), 500
+# ==========================================
+# ENDPOINT PARA EL FRONTEND: EVENTOS
+# ==========================================
+@app.route("/api/eventos", methods=["GET"])
+def get_eventos():
+    try:
+        # Buscamos los eventos en Mongo y los ordenamos por fecha
+        eventos_db = list(db["eventos"].find({}, {"_id": 0}).sort("fecha", 1))
+        
+        eventos_formateados = []
+        for e in eventos_db:
+            evento = {
+                "id": str(e.get("_id", e.get("id", ""))),
+                "titulo": e.get("titulo", "Evento GōkuLab"),
+                "descripcion": e.get("descripcion", ""),
+                "fecha": e.get("fecha", ""),
+                "hora": e.get("hora", ""),
+                "lugar": e.get("lugar", ""),
+                "tipo": e.get("tipo", "interno"),
+                "audiencia": e.get("audiencia", ["todos"]),
+                "link": e.get("link", ""),
+                "imagen": e.get("imagen", ""),
+                "precio": e.get("precio", "Gratis"),
+                "destacado": e.get("destacado", False)
+            }
+            eventos_formateados.append(evento)
+            
+        return jsonify(eventos_formateados), 200
+    except Exception as e:
+        logger.error(f"Error en /api/eventos: {e}")
+        return jsonify({"error": str(e)}), 500
 
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    logger.info(f"Arrancando Flask en puerto {port}...")
+    app.run(host="0.0.0.0", port=port)
+    
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     logger.info(f"Arrancando Flask en puerto {port}...")
