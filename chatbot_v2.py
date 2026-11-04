@@ -572,9 +572,10 @@ INSTRUCCIONES = {
         "Máximo 3 oraciones."
     ),
     "Consultar_Ubicacion": (
-        "Da la dirección completa en UNA oración, el link de Google Maps, "
-        "y las referencias en UNA oración adicional."
-    ),
+        "Da la dirección completa en UNA oración. "
+        "En una línea nueva, incluye un link en formato Markdown: [📍 Ver en Google Maps](URL_DEL_MAPA). "
+        "Y agrega las referencias en UNA oración adicional."
+    ),    
     "Consultar_Modalidad": "Explica si las clases son presenciales, online o híbridas por curso. Máximo 2 oraciones.",
     "Consultar_Certificacion": (
         "Si tienes el campo 'certificacion', explícalo en 2 oraciones. "
@@ -696,7 +697,7 @@ def formatear_para_web(respuesta):
     texto = re.sub(r"\*\*(.+?)\*\*", r"\1", texto)
     texto = re.sub(r"__(.+?)__", r"\1", texto)
     texto = re.sub(r"^\s*[-*]\s+", "• ", texto, flags=re.MULTILINE)
-    return texto
+    return respuesta
 
 def formatear_para_telegram(respuesta):
     return respuesta
@@ -835,35 +836,44 @@ def formatear_lista_cursos(cursos, max_cursos=30):
     if not cursos:
         return None
 
-    grupos = {}
+    ninos, adolescentes, adultos, empresas = [], [], [], []
+
     for c in cursos:
         nombre = _a_texto(c.get("nombreCurso"))
-        edad = _a_texto(c.get("edad_dirigida")) or "Sin categoría"
-        if not nombre:
-            continue
-        grupos.setdefault(edad, []).append(nombre)
+        edad = _a_texto(c.get("edad_dirigida")).lower()
+        if not nombre: continue
+        
+        if "adulto" in edad or "18" in edad or "99" in edad:
+            adultos.append(nombre)
+        elif "empresa" in edad or "corporativo" in nombre.lower():
+            empresas.append(nombre)
+        elif re.search(r'\b(1[2-7]|[89])\b', edad):
+            adolescentes.append(nombre)
+        else:
+            ninos.append(nombre)
 
-    if not grupos:
-        return None
-
-    grupos_ordenados = sorted(grupos.items(), key=lambda x: _parsear_edad_min(x[0]))
-
-    lineas = ["📚 *Estos son nuestros cursos disponibles:*", ""]
-    total = 0
-    for edad, nombres in grupos_ordenados:
-        lineas.append(f"*{edad}*")
-        for n in nombres:
-            if total >= max_cursos:
-                break
-            lineas.append(f"• {n}")
-            total += 1
+    lineas = ["### 📚 Nuestro Catálogo\n"]
+    
+    if ninos:
+        lineas.append("**🧒 Para Niños**")
+        for n in ninos: lineas.append(f"- {n}")
         lineas.append("")
-        if total >= max_cursos:
-            break
+    if adolescentes:
+        lineas.append("**🎮 Para Adolescentes**")
+        for n in adolescentes: lineas.append(f"- {n}")
+        lineas.append("")
+    if adultos:
+        lineas.append("**👨‍💼 Para Adultos**")
+        for n in adultos: lineas.append(f"- {n}")
+        lineas.append("")
+    if empresas:
+        lineas.append("**🏢 Para Empresas**")
+        for n in empresas: lineas.append(f"- {n}")
+        lineas.append("")
 
-    lineas.append("¿Sobre cuál te gustaría saber más? Te puedo dar el detalle de qué se aprende, horarios o costos 😊")
+    lineas.append("---")
+    lineas.append("¿Sobre cuál te gustaría saber más? Puedo darte el temario exacto, costos o agendar una clase.")
     return "\n".join(lineas)
-
 # ─────────────────────────────────────────────
 # RESPUESTA RÁPIDA PARA CLASE DEMO
 # ─────────────────────────────────────────────
