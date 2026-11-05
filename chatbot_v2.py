@@ -117,53 +117,24 @@ PALABRAS_AFIRMATIVAS = {
 
 # ─── Keywords que fuerzan RAG ───
 KEYWORDS_RAG_FORZADO = [
-    # Vacacionales
-    "vacacional", "vacaciones", "verano", "invierno", "intensivo",
-    "semana santa", "curso de verano",
-    # Metodología
-    "metodolog", "como enseñan", "cómo enseñan", "como aprenden",
-    "cómo aprenden", "que tecnica", "qué técnica", "estilo de enseñ",
-    "forma de enseñ", "proceso de enseñ",
-    # Estacionamiento
+    "vacacional", "vacaciones", "verano", "invierno", "intensivo", "semana santa", "curso de verano",
+    "metodolog", "como enseñan", "cómo enseñan", "como aprenden", "cómo aprenden", "que tecnica", "qué técnica", "estilo de enseñ", "forma de enseñ", "proceso de enseñ",
     "estacionamiento", "estacionar", "parking", "donde dejo el auto",
-    # Maestros
     "maestro", "profesor", "instructor", "quien enseña", "quién enseña",
-    # Materiales
-    "materiales", "que traer", "qué traer", "llevar a clase", "que necesito",
-    "qué necesito", "laptop", "computadora propia",
-    # Reagendar
-    "reagendar", "reponer", "recuperar clase", "falta de mi hijo",
-    "no puedo ir", "no asistir", "clase perdida",
-    # Múltiples cursos
-    "mas de un curso", "más de un curso", "varios cursos", "dos cursos",
-    "multiples cursos", "múltiples cursos",
-    # Becas
+    "materiales", "que traer", "qué traer", "llevar a clase", "que necesito", "qué necesito", "laptop", "computadora propia",
+    "reagendar", "reponer", "recuperar clase", "falta de mi hijo", "no puedo ir", "no asistir", "clase perdida",
+    "mas de un curso", "más de un curso", "varios cursos", "dos cursos", "multiples cursos", "múltiples cursos",
     "beca", "ayuda economica", "ayuda económica", "apoyo economico",
-    # Inclusión
-    "autismo", "inclusion", "inclusión", "necesidades especiales",
-    "discapacidad",
-    # Graduación
+    "autismo", "inclusion", "inclusión", "necesidades especiales", "discapacidad",
     "graduacion", "graduación", "proyecto final", "ceremonia",
-    # Plataforma
-    "plataforma digital", "plataforma de", "area personal", "área personal",
-    "acceso digital", "materiales digitales",
-    # Eventos
+    "plataforma digital", "plataforma de", "area personal", "área personal", "acceso digital", "materiales digitales",
     "eventos", "competencias", "torneo", "torneos", "scratch",
-    # Director
-    "director", "fundador", "quien dirige", "quién dirige", "juan carlos",
-    "claudia sierra",
-    # Redes
+    "director", "fundador", "quien dirige", "quién dirige", "juan carlos", "claudia sierra",
     "redes sociales", "instagram", "tiktok", "facebook oficial",
-    # Seguimiento
     "seguimiento", "reportes", "informes", "boleta", "trimestre",
-    # Quiénes somos
-    "quienes son", "quiénes son", "que es goku", "qué es goku",
-    "que es gokulab", "qué es gokulab",
-    # Cambio de horario
+    "quienes son", "quiénes son", "que es goku", "qué es goku", "que es gokulab", "qué es gokulab",
     "cambiar horario", "cambio de grupo", "cambiar de grupo",
-    # Alumnos por grupo
     "cuantos alumnos", "cuántos alumnos", "tamaño de grupo", "cupo",
-    # Cancelación
     "cancelar", "dar de baja", "pausar",
 ]
 
@@ -192,7 +163,6 @@ def _extraer_campo(data, nombres_posibles, default=""):
             valor = data[nombre]
             if valor is not None and str(valor).strip():
                 return str(valor).strip()
-
     for subkey in ("lead", "contact", "contacto", "cliente", "data"):
         subobj = data.get(subkey)
         if isinstance(subobj, dict):
@@ -201,7 +171,6 @@ def _extraer_campo(data, nombres_posibles, default=""):
                     valor = subobj[nombre]
                     if valor is not None and str(valor).strip():
                         return str(valor).strip()
-
     return default
 
 # ─────────────────────────────────────────────
@@ -731,7 +700,6 @@ def llamar_groq(messages):
                     "temperature": 0.7,
                     "messages": messages,
                 }
-                # Se eliminó reasoning_effort para evitar el error de modelo no encontrado
 
                 respuesta = cliente.chat.completions.create(**kwargs)
                 contenido = respuesta.choices[0].message.content
@@ -1750,11 +1718,6 @@ def get_eventos():
         logger.error(f"Error en /api/eventos: {e}")
         return jsonify({"error": str(e)}), 500
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    logger.info(f"Arrancando Flask en puerto {port}...")
-    app.run(host="0.0.0.0", port=port)
-    
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     logger.info(f"Arrancando Flask en puerto {port}...")
