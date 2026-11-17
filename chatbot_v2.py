@@ -1103,6 +1103,8 @@ def get_cursos():
                 "valueProps": valueProps,
                 "modules": modules,
                 "techs": c.get("techs") or c.get("qué_aprende", [])[:3]
+                "targetAudience": c.get("targetAudience") or c.get("audiencia") or ["kids"]
+
             }
             cursos_formateados.append(curso)
         return jsonify(cursos_formateados), 200
