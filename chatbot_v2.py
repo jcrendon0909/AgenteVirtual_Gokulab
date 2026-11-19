@@ -1060,7 +1060,7 @@ def get_cursos():
     try:
         cursos_db = list(db["cursos"].find({}, {"_id": 0}))
         cursos_formateados = []
-        for c in cursos_db:
+                for c in cursos_db:
             # FIX 1: Leemos el imagen_key correcto. Si no existe, intentamos con slug + .jpg
             img_key = c.get("imagen_key") or c.get("imagenKey") or ""
             if not img_key:
@@ -1102,9 +1102,9 @@ def get_cursos():
                 "videoUrl": c.get("videoUrl", ""),
                 "valueProps": valueProps,
                 "modules": modules,
-                "techs": c.get("techs") or c.get("qué_aprende", [])[:3]
+                "techs": c.get("techs") or c.get("qué_aprende", [])[:3],
+                # 🔥 LA LÍNEA MÁGICA QUE FALTABA
                 "targetAudience": c.get("targetAudience") or c.get("audiencia") or ["kids"]
-
             }
             cursos_formateados.append(curso)
         return jsonify(cursos_formateados), 200
