@@ -1061,21 +1061,29 @@ def get_cursos():
         cursos_db = list(db["cursos"].find({}, {"_id": 0}))
         cursos_formateados = []
         
-                for c in cursos_db:
+        for c in cursos_db:
+            # FIX 1: Leemos el imagen_key correcto. Si no existe, intentamos con slug + .jpg
             img_key = c.get("imagen_key") or c.get("imagenKey") or ""
             if not img_key:
                 slug = c.get("slug", "")
                 img_key = f"{slug}.jpg" if slug else ""
             
+            # FIX 2: subtitle ahora lee descripcionCorta (nuevo) o descripción (viejo)
             subtitle = c.get("descripcionCorta") or c.get("descripción") or c.get("descripcion") or "Aprende creando desde el primer día"
+            
+            # FIX 3: duration ahora lee duracion (nuevo) o duración_min_clase (viejo)
             duration = c.get("duracion") or f"{c.get('duración_min_clase', 90)} min por clase"
+            
+            # FIX 4: modules y valueProps ahora sí leen del campo correcto
             modules = c.get("modules") or c.get("modulos") or []
             valueProps = c.get("valueProps") or []
             
+            # Si no hay valueProps, generamos desde beneficios (compatibilidad hacia atrás)
             if not valueProps and c.get("beneficios"):
                 for b in c.get("beneficios", []):
                     valueProps.append({"title": b, "desc": "Habilidad clave para su desarrollo.", "icon": "✨"})
             
+            # Si no hay modules, generamos desde qué_aprende (compatibilidad hacia atrás)
             if not modules and c.get("qué_aprende"):
                 que_aprende = c.get("qué_aprende", [])
                 modules.append({"id": "m1", "title": "Lo que dominará", "lessons": len(que_aprende), "topics": que_aprende})
@@ -1106,11 +1114,12 @@ def get_cursos():
                 "orden_company": c.get("orden_company")
             }
             cursos_formateados.append(curso)
-        
+            
         return jsonify(cursos_formateados), 200
     except Exception as e:
         logger.error(f"Error en /api/cursos: {e}")
         return jsonify({"error": str(e)}), 500
+    
 # ==========================================
 # ENDPOINT PARA EL FRONTEND: EVENTOS
 # ==========================================
