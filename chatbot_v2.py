@@ -1061,7 +1061,7 @@ def get_cursos():
         cursos_db = list(db["cursos"].find({}, {"_id": 0}))
         cursos_formateados = []
         
-        for c in cursos_db:
+                for c in cursos_db:
             img_key = c.get("imagen_key") or c.get("imagenKey") or ""
             if not img_key:
                 slug = c.get("slug", "")
@@ -1096,10 +1096,17 @@ def get_cursos():
                 "valueProps": valueProps,
                 "modules": modules,
                 "techs": c.get("techs") or c.get("qué_aprende", [])[:3],
-                # 🔥 LA LÍNEA QUE ARREGLA TODO:
-                "targetAudience": c.get("targetAudience") or c.get("audiencia") or ["kids"]
+                "targetAudience": c.get("targetAudience") or c.get("audiencia") or ["kids"],
+                
+                # 🔥 AQUÍ ESTÁ LA MAGIA: Enviamos los campos de orden y audiencia al Frontend
+                "audiencia_principal": c.get("audiencia_principal"),
+                "orden_kids": c.get("orden_kids"),
+                "orden_teens": c.get("orden_teens"),
+                "orden_adults": c.get("orden_adults"),
+                "orden_company": c.get("orden_company")
             }
             cursos_formateados.append(curso)
+        
         return jsonify(cursos_formateados), 200
     except Exception as e:
         logger.error(f"Error en /api/cursos: {e}")
