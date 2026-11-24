@@ -1148,6 +1148,42 @@ def get_eventos():
         logger.error(f"Error en /api/eventos: {e}")
         return jsonify({"error": str(e)}), 500
 
+# ==========================================
+# ENDPOINT PARA ACTUALIZAR CURSOS (ADMIN)
+# ==========================================
+@app.route("/api/cursos/<slug>", methods=["PATCH"])
+def update_curso(slug):
+    if not verificar_admin():
+        return jsonify({"error": "No autorizado. Token inválido."}), 401
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"error": "Body JSON requerido"}), 400
+        
+        # Solo permitimos editar estos campos (NO los de fondo como temario)
+        campos_permitidos = [
+            "targetAudience", "audiencia_principal", 
+            "orden_kids", "orden_teens", "orden_adults", "orden_company",
+            "edad_dirigida", "precio_desde", "imgKey",
+            "nombreCurso", "descripcionCorta", "publicable"
+        ]
+        
+        update_data = {k: v for k, v in data.items() if k in campos_permitidos}
+        
+        if not update_data:
+            return jsonify({"error": "No hay campos válidos para actualizar"}), 400
+        
+        resultado = db["cursos"].update_one({"slug": slug}, {"$set": update_data})
+        
+        return jsonify({
+            "status": "ok", 
+            "message": f"Curso '{slug}' actualizado.",
+            "modificados": resultado.modified_count
+        }), 200
+    except Exception as e:
+        logger.error(f"Error actualizando curso {slug}: {e}")
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     logger.info(f"Arrancando Flask en puerto {port}...")
