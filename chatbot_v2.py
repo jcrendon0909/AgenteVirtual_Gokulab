@@ -1160,15 +1160,18 @@ def update_curso(slug):
         if not data:
             return jsonify({"error": "Body JSON requerido"}), 400
         
-        # Solo permitimos editar estos campos (NO los de fondo como temario)
         campos_permitidos = [
             "targetAudience", "audiencia_principal", 
             "orden_kids", "orden_teens", "orden_adults", "orden_company",
-            "edad_dirigida", "precio_desde", "imgKey",
+            "edad_dirigida", "precio_desde", "imgKey", "imgVersion", 
             "nombreCurso", "descripcionCorta", "publicable"
         ]
         
         update_data = {k: v for k, v in data.items() if k in campos_permitidos}
+        
+        # 🔥 LA MAGIA: Si actualizan imgKey, actualizamos también imagen_key
+        if "imgKey" in update_data:
+            update_data["imagen_key"] = update_data["imgKey"]
         
         if not update_data:
             return jsonify({"error": "No hay campos válidos para actualizar"}), 400
@@ -1183,8 +1186,3 @@ def update_curso(slug):
     except Exception as e:
         logger.error(f"Error actualizando curso {slug}: {e}")
         return jsonify({"error": str(e)}), 500
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    logger.info(f"Arrancando Flask en puerto {port}...")
-    app.run(host="0.0.0.0", port=port)
